@@ -10,7 +10,7 @@
 set -e
 
 # ── Config — change GITHUB_USER to your GitHub username ───────
-GITHUB_USER="MihailKashintasev"
+GITHUB_USER="MihailKashintsev"
 GITHUB_REPO="ren3d"
 GITHUB_BRANCH="main"
 
