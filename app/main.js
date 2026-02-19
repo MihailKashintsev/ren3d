@@ -174,6 +174,26 @@ ipcMain.handle('open-file', async () => {
 });
 
 // ── Жизненный цикл ────────────────────────────────────────
+// ── Auto-updater IPC ─────────────────────────────────────────
+ipcMain.handle('update-app', async (_e, html) => {
+  const indexPath = path.join(__dirname, 'src', 'index.html');
+  try {
+    // Backup current version
+    fs.writeFileSync(indexPath + '.bak', fs.readFileSync(indexPath));
+    // Write new version
+    fs.writeFileSync(indexPath, html, 'utf8');
+    return { ok: true };
+  } catch (err) {
+    // Restore backup on failure
+    try { fs.writeFileSync(indexPath, fs.readFileSync(indexPath + '.bak')); } catch {}
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.handle('reload-app', () => {
+  if (win) win.webContents.reloadIgnoringCache();
+});
+
 app.whenReady().then(createWindow);
 
 app.on('second-instance', () => {

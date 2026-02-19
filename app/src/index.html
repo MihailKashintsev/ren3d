@@ -2294,6 +2294,188 @@ function toast(msg) {
 // ── Start ──
 window.addEventListener('load', init);
 window.addEventListener('resize', resize);
+
+// ═══════════════════════════════════════════════════════════
+//  AUTO-UPDATER
+// ═══════════════════════════════════════════════════════════
+
+const APP_VERSION     = '2.0.0';
+const GITHUB_USER     = 'MihailKashintsev';
+const GITHUB_REPO     = 'ren3d';
+const GITHUB_BRANCH   = 'master';
+const VERSION_URL     = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/app/version.json`;
+const APP_URL         = `https://raw.githubusercontent.com/${GITHUB_USER}/${GITHUB_REPO}/${GITHUB_BRANCH}/app/src/index.html`;
+
+// Update banner styles
+(function injectUpdateStyles() {
+  const s = document.createElement('style');
+  s.textContent = `
+    #update-banner {
+      position: fixed;
+      bottom: 32px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,212,255,0.12);
+      border: 1px solid rgba(0,212,255,0.35);
+      backdrop-filter: blur(20px);
+      border-radius: 12px;
+      padding: 14px 22px;
+      display: flex; align-items: center; gap: 14px;
+      color: rgba(255,255,255,0.92);
+      font-family: 'Syne', sans-serif;
+      font-size: 13px;
+      z-index: 99999;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 20px rgba(0,212,255,0.15);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.4s ease;
+    }
+    #update-banner.visible { opacity: 1; pointer-events: all; }
+    #update-banner .upd-icon { font-size: 18px; }
+    #update-banner .upd-text { flex: 1; }
+    #update-banner .upd-version { color: #00d4ff; font-weight: 600; }
+    #update-banner .upd-btn {
+      background: rgba(0,212,255,0.2);
+      border: 1px solid rgba(0,212,255,0.4);
+      border-radius: 7px;
+      color: #00d4ff;
+      font-family: 'Syne', sans-serif;
+      font-size: 12px; font-weight: 600;
+      padding: 6px 14px; cursor: pointer;
+      transition: background 0.2s;
+    }
+    #update-banner .upd-btn:hover { background: rgba(0,212,255,0.35); }
+    #update-banner .upd-btn.upd-dismiss {
+      background: transparent; border-color: rgba(255,255,255,0.15);
+      color: rgba(255,255,255,0.4);
+    }
+    #update-banner .upd-btn.upd-dismiss:hover { color: rgba(255,255,255,0.7); }
+    #update-progress {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      height: 3px; background: rgba(0,212,255,0.15);
+      z-index: 99999; opacity: 0; transition: opacity 0.3s;
+    }
+    #update-progress-bar {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, #00d4ff, #4499ff);
+      transition: width 0.3s ease;
+    }
+  `;
+  document.head.appendChild(s);
+
+  // Create banner element
+  const banner = document.createElement('div');
+  banner.id = 'update-banner';
+  banner.innerHTML = `
+    <span class="upd-icon">🔄</span>
+    <span class="upd-text">
+      New version available: <span class="upd-version" id="upd-new-ver"></span>
+      &nbsp;·&nbsp; Current: <span style="color:rgba(255,255,255,0.45)">${APP_VERSION}</span>
+    </span>
+    <button class="upd-btn" id="upd-install-btn" onclick="installUpdate()">Update now</button>
+    <button class="upd-btn upd-dismiss" onclick="dismissUpdate()">Later</button>
+  `;
+  document.body.appendChild(banner);
+
+  // Progress bar
+  const prog = document.createElement('div');
+  prog.id = 'update-progress';
+  prog.innerHTML = '<div id="update-progress-bar"></div>';
+  document.body.appendChild(prog);
+})();
+
+function showUpdateBanner(newVersion) {
+  document.getElementById('upd-new-ver').textContent = newVersion;
+  document.getElementById('update-banner').classList.add('visible');
+}
+
+function dismissUpdate() {
+  document.getElementById('update-banner').classList.remove('visible');
+}
+
+async function installUpdate() {
+  const banner = document.getElementById('update-banner');
+  const btn    = document.getElementById('upd-install-btn');
+  const prog   = document.getElementById('update-progress');
+  const bar    = document.getElementById('update-progress-bar');
+
+  btn.textContent = 'Downloading...';
+  btn.disabled = true;
+  prog.style.opacity = '1';
+  bar.style.width = '15%';
+
+  try {
+    // Fetch new index.html from GitHub
+    const resp = await fetch(APP_URL + '?t=' + Date.now());
+    if (!resp.ok) throw new Error('Download failed: ' + resp.status);
+
+    bar.style.width = '60%';
+    const html = await resp.text();
+    bar.style.width = '85%';
+
+    // Ask Electron main process to save and reload
+    if (window.electronAPI && window.electronAPI.updateApp) {
+      const result = await window.electronAPI.updateApp(html);
+      if (result.ok) {
+        bar.style.width = '100%';
+        btn.textContent = 'Restarting...';
+        setTimeout(() => window.electronAPI.reloadApp(), 800);
+      } else {
+        throw new Error(result.error || 'Save failed');
+      }
+    } else {
+      // Browser fallback — just reload with new content
+      bar.style.width = '100%';
+      banner.innerHTML = '<span class="upd-icon">✓</span><span class="upd-text">Updated! Please refresh the page.</span>';
+    }
+  } catch (err) {
+    bar.style.opacity = '0';
+    btn.textContent = 'Update now';
+    btn.disabled = false;
+    banner.querySelector('.upd-text').innerHTML =
+      '<span style="color:#ff4466">Update failed: ' + err.message + '</span>';
+    setTimeout(() => {
+      banner.querySelector('.upd-text').innerHTML =
+        'New version: <span class="upd-version">' +
+        document.getElementById('upd-new-ver').textContent + '</span>';
+    }, 3000);
+  }
+}
+
+// Check for updates (silent, on load)
+async function checkForUpdates() {
+  // Skip if running as plain HTML file without Electron (no internet check needed)
+  try {
+    const resp = await fetch(VERSION_URL + '?t=' + Date.now(), {
+      signal: AbortSignal.timeout(8000)
+    });
+    if (!resp.ok) return;
+
+    const data = await resp.json();
+    const latest = data.version;
+
+    if (latest && latest !== APP_VERSION && isNewerVersion(latest, APP_VERSION)) {
+      console.log(`[Ren3D] Update available: ${APP_VERSION} → ${latest}`);
+      showUpdateBanner(latest);
+    } else {
+      console.log(`[Ren3D] Up to date (${APP_VERSION})`);
+    }
+  } catch (e) {
+    // Silent fail — no internet or GitHub unreachable
+    console.log('[Ren3D] Update check skipped:', e.message);
+  }
+}
+
+function isNewerVersion(latest, current) {
+  const parse = v => v.replace(/^v/, '').split('.').map(Number);
+  const [la, lb, lc] = parse(latest);
+  const [ca, cb, cc] = parse(current);
+  if (la !== ca) return la > ca;
+  if (lb !== cb) return lb > cb;
+  return lc > cc;
+}
+
+// Run update check 3 seconds after load (let the 3D scene initialize first)
+window.addEventListener('load', () => {
+  setTimeout(checkForUpdates, 3000);
+});
 </script>
 </body>
 </html>
