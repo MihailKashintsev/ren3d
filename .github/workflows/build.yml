@@ -1,98 +1,60 @@
-name: Build Ren3D
+name: Build and Release
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'app/**'          # build only when app files change
-  workflow_dispatch:      # allow manual trigger from GitHub UI
+  release:
+    types: [created]
 
 jobs:
-
-  # ── Build Windows .exe ───────────────────────────────────────
   build-windows:
     runs-on: windows-latest
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: app/package.json
+          node-version: '20'
 
       - name: Install dependencies
-        working-directory: app
-        run: npm install
+        working-directory: ./app
+        run: npm ci
 
-      - name: Build Windows installer
-        working-directory: app
-        run: npm run build:win
+      - name: Build Windows exe
+        working-directory: ./app
+        run: npx electron-builder --win --config electron-builder.config.js
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Ren3D-Windows
-          path: |
-            app/dist/*.exe
-          retention-days: 30
-
-  # ── Build Linux .deb + AppImage ──────────────────────────────
-  build-linux:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: app/package.json
-
-      - name: Install dependencies
-        working-directory: app
-        run: npm install
-
-      - name: Build Linux packages
-        working-directory: app
-        run: npm run build:linux
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: Ren3D-Linux
-          path: |
-            app/dist/*.AppImage
-            app/dist/*.deb
-          retention-days: 30
-
-  # ── Create Release when version tag is pushed ────────────────
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-windows, build-linux]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download Windows build
-        uses: actions/download-artifact@v4
-        with:
-          name: Ren3D-Windows
-          path: release/
-
-      - name: Download Linux build
-        uses: actions/download-artifact@v4
-        with:
-          name: Ren3D-Linux
-          path: release/
-
-      - name: Copy Linux installer
-        run: cp installer/ren3d-install.sh release/
-
-      - name: Create GitHub Release
+      - name: Upload exe to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release/*
-          generate_release_notes: true
+          files: app/dist/*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./app
+        run: npm ci
+
+      - name: Build Linux AppImage
+        working-directory: ./app
+        run: npx electron-builder --linux --config electron-builder.config.js
+
+      - name: Upload AppImage to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/dist/*.AppImage
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
