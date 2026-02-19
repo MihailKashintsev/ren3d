@@ -3,7 +3,7 @@
   "version": "2.0.0",
   "description": "Local offline 3D editor",
   "main": "main.js",
-  "homepage": "https://github.com/YOUR_USERNAME/ren3d",
+  "homepage": "https://github.com/MihailKashintsev/ren3d",
   "author": {
     "name": "Ren3D",
     "email": "build@ren3d.app"
@@ -11,22 +11,22 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "dev":                  "electron .",
-    "build:win":            "electron-builder --win --config electron-builder.config.js",
-    "build:win:nsis":       "electron-builder --win nsis --x64 --config electron-builder.config.js",
-    "build:win:portable":   "electron-builder --win portable --x64 --config electron-builder.config.js",
-    "build:linux":          "electron-builder --linux --config electron-builder.config.js",
-    "build:linux:deb":      "electron-builder --linux deb --x64 --config electron-builder.config.js",
-    "build:linux:img":      "electron-builder --linux AppImage --x64 --config electron-builder.config.js",
-    "clean":                "rimraf dist .electron-cache",
-    "postinstall":          "electron-builder install-app-deps"
+    "dev": "electron .",
+    "build:win": "electron-builder --win --config electron-builder.config.js",
+    "build:win:nsis": "electron-builder --win nsis --x64 --config electron-builder.config.js",
+    "build:win:portable": "electron-builder --win portable --x64 --config electron-builder.config.js",
+    "build:linux": "electron-builder --linux --config electron-builder.config.js",
+    "build:linux:deb": "electron-builder --linux deb --x64 --config electron-builder.config.js",
+    "build:linux:img": "electron-builder --linux AppImage --x64 --config electron-builder.config.js",
+    "clean": "rimraf dist .electron-cache",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {},
   "devDependencies": {
-    "electron":         "^29.0.0",
+    "electron": "^29.0.0",
     "electron-builder": "^24.9.0",
-    "nodemon":          "^3.1.0",
-    "rimraf":           "^5.0.5"
+    "nodemon": "^3.1.0",
+    "rimraf": "^5.0.5"
   },
   "build": { "extends": null }
 }
