@@ -8,23 +8,6 @@ if (!gotLock) { app.quit(); process.exit(0); }
 
 let win = null;
 
-// ── Путь к обновлённому index.html вне .asar ──────────────
-// app.getPath('userData') → C:\Users\...\AppData\Roaming\Ren3D  (Windows)
-//                         → ~/.config/Ren3D                      (Linux)
-// .asar нельзя изменять — он read-only; userData всегда доступен для записи
-const USER_DATA = app.getPath('userData');
-const UPDATED_HTML = path.join(USER_DATA, 'index.html');
-
-// Определяем какой index.html загружать:
-//   если в userData лежит обновление — берём его,
-//   иначе — оригинал из .asar
-function getIndexPath() {
-    try {
-        if (fs.existsSync(UPDATED_HTML)) return UPDATED_HTML;
-    } catch { }
-    return path.join(__dirname, 'src', 'index.html');
-}
-
 function createWindow() {
     win = new BrowserWindow({
         width: 1440,
@@ -33,22 +16,42 @@ function createWindow() {
         minHeight: 600,
         title: 'Ren3D',
         backgroundColor: '#050508',
-        show: false,
+        show: false,                     // показать после загрузки
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.js'),
-            webSecurity: false,
+            webSecurity: false,          // allow loading CDN scripts (Three.js)
             allowRunningInsecureContent: true,
         },
+        // ── Оформление окна по платформе ──────────────────────
         ...(process.platform === 'darwin'
             ? { titleBarStyle: 'hiddenInset' }
             : { frame: true }
         ),
     });
 
-    win.loadFile(getIndexPath());
+    win.loadFile(path.join(__dirname, 'src', 'index.html'));
 
+    // FIX LINUX CTRL SHORTCUTS:
+    // На Linux Electron перехватывает Ctrl+клавиши на уровне нативного меню
+    // раньше чем они доходят до страницы. before-input-event перехватывает
+    // их ДО обработки Electron и пересылает напрямую в renderer через IPC.
+    win.webContents.on('before-input-event', (event, input) => {
+        if (input.type !== 'keyDown') return;
+        if (!input.control && !input.meta) return;
+
+        const key = input.key.toLowerCase();
+        const shift = input.shift;
+
+        // Пересылаем в renderer — onKey там поймает через ipcRenderer
+        win.webContents.send('ctrl-key', { key, shift });
+
+        // Блокируем обработку Electron-ом (иначе меню перехватит)
+        event.preventDefault();
+    });
+
+    // Показать окно только когда контент готов (нет белого flash)
     win.once('ready-to-show', () => {
         win.show();
         if (process.env.NODE_ENV === 'development') {
@@ -56,6 +59,7 @@ function createWindow() {
         }
     });
 
+    // Внешние ссылки — в браузере, не в Electron
     win.webContents.setWindowOpenHandler(({ url }) => {
         shell.openExternal(url);
         return { action: 'deny' };
@@ -72,11 +76,11 @@ function buildMenu() {
         {
             label: 'Файл',
             submenu: [
-                { label: 'Новая сцена', accelerator: 'CmdOrCtrl+N', click: () => win.webContents.executeJavaScript('newScene()') },
+                { label: 'Новая сцена (Ctrl+N)', click: () => win.webContents.executeJavaScript('newScene()') },
                 { type: 'separator' },
-                { label: 'Импорт .stl / .obj', accelerator: 'CmdOrCtrl+I', click: () => win.webContents.executeJavaScript('doImport()') },
+                { label: 'Импорт .stl / .obj (Ctrl+I)', click: () => win.webContents.executeJavaScript('doImport()') },
                 { type: 'separator' },
-                { label: 'Экспорт .stl', accelerator: 'CmdOrCtrl+E', click: () => win.webContents.executeJavaScript('exportSTL()') },
+                { label: 'Экспорт .stl (Ctrl+E)', click: () => win.webContents.executeJavaScript('exportSTL()') },
                 { label: 'Экспорт .obj', click: () => win.webContents.executeJavaScript('exportOBJ()') },
                 { type: 'separator' },
                 isMac ? { role: 'close' } : { role: 'quit', label: 'Выход' },
@@ -85,13 +89,13 @@ function buildMenu() {
         {
             label: 'Правка',
             submenu: [
-                { label: 'Отмена', accelerator: 'CmdOrCtrl+Z', click: () => win.webContents.executeJavaScript('undo()') },
-                { label: 'Повтор', accelerator: 'CmdOrCtrl+Y', click: () => win.webContents.executeJavaScript('redo()') },
+                { label: 'Отмена (Ctrl+Z)', click: () => win.webContents.executeJavaScript('undo()') },
+                { label: 'Повтор (Ctrl+Y)', click: () => win.webContents.executeJavaScript('redo()') },
                 { type: 'separator' },
-                { label: 'Дублировать', accelerator: 'CmdOrCtrl+D', click: () => win.webContents.executeJavaScript('duplicateSel()') },
-                { label: 'Удалить', accelerator: 'Delete', click: () => win.webContents.executeJavaScript('deleteSel()') },
+                { label: 'Дублировать (Ctrl+D)', click: () => win.webContents.executeJavaScript('duplicateSel()') },
+                { label: 'Удалить (Del)', click: () => win.webContents.executeJavaScript('deleteSel()') },
                 { type: 'separator' },
-                { label: 'Выделить всё', accelerator: 'CmdOrCtrl+A', click: () => win.webContents.executeJavaScript('selectAll()') },
+                { label: 'Выделить всё (Ctrl+A)', click: () => win.webContents.executeJavaScript('selectAll()') },
             ],
         },
         {
@@ -102,11 +106,11 @@ function buildMenu() {
                 { label: 'Сверху', click: () => win.webContents.executeJavaScript("camView('top')") },
                 { label: 'Справа', click: () => win.webContents.executeJavaScript("camView('right')") },
                 { type: 'separator' },
-                { label: 'Показать всё', accelerator: 'Home', click: () => win.webContents.executeJavaScript('frameAll()') },
-                { label: 'Показать выбранное', accelerator: 'F', click: () => win.webContents.executeJavaScript('frameSel()') },
+                { label: 'Показать всё (Home)', click: () => win.webContents.executeJavaScript('frameAll()') },
+                { label: 'Показать выбранное (F)', click: () => win.webContents.executeJavaScript('frameSel()') },
                 { type: 'separator' },
-                { label: 'Сетка', click: () => win.webContents.executeJavaScript('toggleGrid()') },
-                { label: 'Каркас', click: () => win.webContents.executeJavaScript('toggleWire()') },
+                { label: 'Сетка (T)', click: () => win.webContents.executeJavaScript('toggleGrid()') },
+                { label: 'Каркас (Z)', click: () => win.webContents.executeJavaScript('toggleWire()') },
                 { type: 'separator' },
                 { role: 'toggleDevTools', label: 'Инструменты разработчика' },
                 { role: 'resetZoom', label: 'Сбросить масштаб UI' },
@@ -119,12 +123,12 @@ function buildMenu() {
         {
             label: 'Добавить',
             submenu: [
-                { label: '⬛  Куб', accelerator: 'Shift+C', click: () => win.webContents.executeJavaScript("addObj('box')") },
-                { label: '🔵  Сфера', accelerator: 'Shift+S', click: () => win.webContents.executeJavaScript("addObj('sphere')") },
-                { label: '🔷  Цилиндр', accelerator: 'Shift+Y', click: () => win.webContents.executeJavaScript("addObj('cyl')") },
-                { label: '🔺  Конус', accelerator: 'Shift+O', click: () => win.webContents.executeJavaScript("addObj('cone')") },
-                { label: '⭕  Тор', accelerator: 'Shift+T', click: () => win.webContents.executeJavaScript("addObj('torus')") },
-                { label: '⬜  Плоскость', accelerator: 'Shift+P', click: () => win.webContents.executeJavaScript("addObj('plane')") },
+                { label: '⬛  Куб (Shift+C)', click: () => win.webContents.executeJavaScript("addObj('box')") },
+                { label: '🔵  Сфера (Shift+S)', click: () => win.webContents.executeJavaScript("addObj('sphere')") },
+                { label: '🔷  Цилиндр (Shift+Y)', click: () => win.webContents.executeJavaScript("addObj('cyl')") },
+                { label: '🔺  Конус (Shift+O)', click: () => win.webContents.executeJavaScript("addObj('cone')") },
+                { label: '⭕  Тор (Shift+T)', click: () => win.webContents.executeJavaScript("addObj('torus')") },
+                { label: '⬜  Плоскость (Shift+P)', click: () => win.webContents.executeJavaScript("addObj('plane')") },
             ],
         },
         {
@@ -150,6 +154,7 @@ function buildMenu() {
 }
 
 // ── IPC: нативный диалог сохранения файла ─────────────────
+// Вызывается из renderer через contextBridge (preload.js)
 ipcMain.handle('save-file', async (_e, { defaultName, content }) => {
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
         defaultPath: defaultName,
@@ -186,42 +191,27 @@ ipcMain.handle('open-file', async () => {
     }
 });
 
-// ── IPC: авто-обновление ───────────────────────────────────
-// ИСПРАВЛЕНО: пишем в userData (вне .asar), а не внутрь архива.
-// .asar — read-only файловая система, писать в неё нельзя.
-// userData всегда доступен для записи без прав администратора.
+// ── Жизненный цикл ────────────────────────────────────────
+// ── Auto-updater IPC ─────────────────────────────────────────
 ipcMain.handle('update-app', async (_e, html) => {
+    const indexPath = path.join(__dirname, 'src', 'index.html');
     try {
-        // Убеждаемся что папка userData существует
-        fs.mkdirSync(USER_DATA, { recursive: true });
-
-        // Сохраняем резервную копию текущего обновления (если есть)
-        if (fs.existsSync(UPDATED_HTML)) {
-            fs.copyFileSync(UPDATED_HTML, UPDATED_HTML + '.bak');
-        }
-
-        // Пишем новый index.html в userData — это всегда работает
-        fs.writeFileSync(UPDATED_HTML, html, 'utf8');
+        // Backup current version
+        fs.writeFileSync(indexPath + '.bak', fs.readFileSync(indexPath));
+        // Write new version
+        fs.writeFileSync(indexPath, html, 'utf8');
         return { ok: true };
     } catch (err) {
-        // Откатываемся к резервной копии при ошибке
-        try {
-            if (fs.existsSync(UPDATED_HTML + '.bak')) {
-                fs.copyFileSync(UPDATED_HTML + '.bak', UPDATED_HTML);
-            }
-        } catch { }
+        // Restore backup on failure
+        try { fs.writeFileSync(indexPath, fs.readFileSync(indexPath + '.bak')); } catch { }
         return { ok: false, error: err.message };
     }
 });
 
 ipcMain.handle('reload-app', () => {
-    if (win) {
-        // Перезагружаем с правильным путём (может смениться после обновления)
-        win.loadFile(getIndexPath());
-    }
+    if (win) win.webContents.reloadIgnoringCache();
 });
 
-// ── Жизненный цикл ────────────────────────────────────────
 app.whenReady().then(createWindow);
 
 app.on('second-instance', () => {

@@ -1342,6 +1342,26 @@
             window.addEventListener('resize', resize);
             document.addEventListener('click', closeMenus);
 
+            // FIX LINUX CTRL SHORTCUTS:
+            // На Linux Electron перехватывает Ctrl+клавиши до того как они доходят до страницы.
+            // main.js ловит их через before-input-event и пересылает сюда через IPC.
+            if (window.electronAPI && window.electronAPI.onCtrlKey) {
+                window.electronAPI.onCtrlKey(({ key, shift }) => {
+                    switch (key) {
+                        case 'z': undo(); break;
+                        case 'y': redo(); break;
+                        case 'd': duplicateSel(); break;
+                        case 'a': selectAll(); break;
+                        case 'i': doImport(); break;
+                        case 'e': exportSTL(); break;
+                        case 'n': newScene(); break;
+                        case 'j':
+                            if (shift) { boolOp('subtract'); } else { boolOp('union'); }
+                            break;
+                    }
+                });
+            }
+
             animate();
             updateStats();
         }
@@ -2623,7 +2643,7 @@
         //  AUTO-UPDATER
         // ═══════════════════════════════════════════════════════════
 
-        const APP_VERSION = '2.0.3';
+        const APP_VERSION = '2.0.4';
         const GITHUB_USER = 'MihailKashintsev';
         const GITHUB_REPO = 'ren3d';
         const GITHUB_BRANCH = 'master';
