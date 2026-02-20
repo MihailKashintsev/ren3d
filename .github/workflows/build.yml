@@ -2,16 +2,22 @@ name: Build Ren3D
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
+    tags:
+      - 'v*'                    # запускать при пуше тега v2.0.1 и т.д.
     paths:
-      - 'app/**'          # build only when app files change
-  workflow_dispatch:      # allow manual trigger from GitHub UI
+      - 'app/**'
+  workflow_dispatch:            # ручной запуск из GitHub UI
 
 jobs:
 
   # ── Build Windows .exe ───────────────────────────────────────
   build-windows:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash             # FIX: использовать bash вместо PowerShell
+        working-directory: app  # FIX: задать рабочую папку глобально для job
     steps:
       - uses: actions/checkout@v4
 
@@ -19,27 +25,27 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: app/package.json
+          cache-dependency-path: app/package-lock.json
 
       - name: Install dependencies
-        working-directory: app
         run: npm install
 
       - name: Build Windows installer
-        working-directory: app
         run: npm run build:win
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: Ren3D-Windows
-          path: |
-            app/dist/*.exe
+          path: app/dist/*.exe
           retention-days: 30
 
   # ── Build Linux .deb + AppImage ──────────────────────────────
   build-linux:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app  # FIX: задать рабочую папку глобально для job
     steps:
       - uses: actions/checkout@v4
 
@@ -47,14 +53,28 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: app/package.json
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libnotify-dev \
+            libnss3 \
+            libxss1 \
+            libxtst6 \
+            xdg-utils \
+            libatspi2.0-dev \
+            libsecret-1-dev \
+            rpm \
+            fakeroot \
+            dpkg
 
       - name: Install dependencies
-        working-directory: app
         run: npm install
 
       - name: Build Linux packages
-        working-directory: app
         run: npm run build:linux
 
       - name: Upload artifacts
@@ -88,8 +108,10 @@ jobs:
           name: Ren3D-Linux
           path: release/
 
-      - name: Copy Linux installer
-        run: cp installer/ren3d-install.sh release/
+      - name: Copy installers
+        run: |
+          cp ren3d-install.sh release/ 2>/dev/null || true
+          cp ren3d-install.bat release/ 2>/dev/null || true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
