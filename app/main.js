@@ -1,57 +1,55 @@
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
+const http = require('http');
 
-// ── Один экземпляр приложения ──────────────────────────────
+// ── Один экземпляр ─────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) { app.quit(); process.exit(0); }
 
 let win = null;
 
+// ── userData для обновлений (вне .asar, всегда writable) ───
+const USER_DATA = app.getPath('userData');
+const UPDATED_HTML = path.join(USER_DATA, 'index.html');
+
+function getIndexPath() {
+    try { if (fs.existsSync(UPDATED_HTML)) return UPDATED_HTML; } catch { }
+    return path.join(__dirname, 'src', 'index.html');
+}
+
 function createWindow() {
     win = new BrowserWindow({
-        width: 1440,
-        height: 900,
-        minWidth: 900,
-        minHeight: 600,
-        title: 'Ren3D',
-        backgroundColor: '#050508',
-        show: false,                     // показать после загрузки
+        width: 1440, height: 900, minWidth: 900, minHeight: 600,
+        title: 'Ren3D', backgroundColor: '#050508', show: false,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
             preload: path.join(__dirname, 'preload.js'),
-            webSecurity: false,          // allow loading CDN scripts (Three.js)
+            webSecurity: false,
             allowRunningInsecureContent: true,
         },
-        // ── Оформление окна по платформе ──────────────────────
-        ...(process.platform === 'darwin'
-            ? { titleBarStyle: 'hiddenInset' }
-            : { frame: true }
-        ),
+        ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' } : { frame: true }),
     });
 
-    win.loadFile(path.join(__dirname, 'src', 'index.html'));
+    win.loadFile(getIndexPath());
 
-    // FIX LINUX CTRL SHORTCUTS:
-    // На Linux Electron перехватывает Ctrl+клавиши на уровне нативного меню
-    // раньше чем они доходят до страницы. before-input-event перехватывает
-    // их ДО обработки Electron и пересылает напрямую в renderer через IPC.
+    // ── FIX LINUX CTRL+KEY ─────────────────────────────────────
+    // На Linux Electron перехватывает Ctrl+клавиши через нативное меню
+    // раньше чем они попадают в renderer. before-input-event срабатывает
+    // до любой обработки Electron — здесь мы их перехватываем,
+    // пересылаем в renderer через IPC и блокируем стандартную обработку.
     win.webContents.on('before-input-event', (event, input) => {
         if (input.type !== 'keyDown') return;
         if (!input.control && !input.meta) return;
-
-        const key = input.key.toLowerCase();
-        const shift = input.shift;
-
-        // Пересылаем в renderer — onKey там поймает через ipcRenderer
-        win.webContents.send('ctrl-key', { key, shift });
-
-        // Блокируем обработку Electron-ом (иначе меню перехватит)
+        win.webContents.send('main-ctrl-key', {
+            key: input.key.toLowerCase(),
+            shift: input.shift,
+        });
         event.preventDefault();
     });
 
-    // Показать окно только когда контент готов (нет белого flash)
     win.once('ready-to-show', () => {
         win.show();
         if (process.env.NODE_ENV === 'development') {
@@ -59,7 +57,6 @@ function createWindow() {
         }
     });
 
-    // Внешние ссылки — в браузере, не в Electron
     win.webContents.setWindowOpenHandler(({ url }) => {
         shell.openExternal(url);
         return { action: 'deny' };
@@ -68,7 +65,7 @@ function createWindow() {
     buildMenu();
 }
 
-// ── Нативное меню ──────────────────────────────────────────
+// ── Меню (accelerator убраны с Ctrl+X — конфликтуют с before-input-event) ──
 function buildMenu() {
     const isMac = process.platform === 'darwin';
     const template = [
@@ -76,11 +73,11 @@ function buildMenu() {
         {
             label: 'Файл',
             submenu: [
-                { label: 'Новая сцена (Ctrl+N)', click: () => win.webContents.executeJavaScript('newScene()') },
+                { label: 'Новая сцена        Ctrl+N', click: () => win.webContents.executeJavaScript('newScene()') },
                 { type: 'separator' },
-                { label: 'Импорт .stl / .obj (Ctrl+I)', click: () => win.webContents.executeJavaScript('doImport()') },
+                { label: 'Импорт .stl/.obj   Ctrl+I', click: () => win.webContents.executeJavaScript('doImport()') },
                 { type: 'separator' },
-                { label: 'Экспорт .stl (Ctrl+E)', click: () => win.webContents.executeJavaScript('exportSTL()') },
+                { label: 'Экспорт .stl       Ctrl+E', click: () => win.webContents.executeJavaScript('exportSTL()') },
                 { label: 'Экспорт .obj', click: () => win.webContents.executeJavaScript('exportOBJ()') },
                 { type: 'separator' },
                 isMac ? { role: 'close' } : { role: 'quit', label: 'Выход' },
@@ -89,13 +86,13 @@ function buildMenu() {
         {
             label: 'Правка',
             submenu: [
-                { label: 'Отмена (Ctrl+Z)', click: () => win.webContents.executeJavaScript('undo()') },
-                { label: 'Повтор (Ctrl+Y)', click: () => win.webContents.executeJavaScript('redo()') },
+                { label: 'Отмена              Ctrl+Z', click: () => win.webContents.executeJavaScript('undo()') },
+                { label: 'Повтор              Ctrl+Y', click: () => win.webContents.executeJavaScript('redo()') },
                 { type: 'separator' },
-                { label: 'Дублировать (Ctrl+D)', click: () => win.webContents.executeJavaScript('duplicateSel()') },
-                { label: 'Удалить (Del)', click: () => win.webContents.executeJavaScript('deleteSel()') },
+                { label: 'Дублировать         Ctrl+D', click: () => win.webContents.executeJavaScript('duplicateSel()') },
+                { label: 'Удалить             Del', click: () => win.webContents.executeJavaScript('deleteSel()') },
                 { type: 'separator' },
-                { label: 'Выделить всё (Ctrl+A)', click: () => win.webContents.executeJavaScript('selectAll()') },
+                { label: 'Выделить всё        Ctrl+A', click: () => win.webContents.executeJavaScript('selectAll()') },
             ],
         },
         {
@@ -106,11 +103,11 @@ function buildMenu() {
                 { label: 'Сверху', click: () => win.webContents.executeJavaScript("camView('top')") },
                 { label: 'Справа', click: () => win.webContents.executeJavaScript("camView('right')") },
                 { type: 'separator' },
-                { label: 'Показать всё (Home)', click: () => win.webContents.executeJavaScript('frameAll()') },
-                { label: 'Показать выбранное (F)', click: () => win.webContents.executeJavaScript('frameSel()') },
+                { label: 'Показать всё      Home', click: () => win.webContents.executeJavaScript('frameAll()') },
+                { label: 'Показать выбранное  F', click: () => win.webContents.executeJavaScript('frameSel()') },
                 { type: 'separator' },
-                { label: 'Сетка (T)', click: () => win.webContents.executeJavaScript('toggleGrid()') },
-                { label: 'Каркас (Z)', click: () => win.webContents.executeJavaScript('toggleWire()') },
+                { label: 'Сетка              T', click: () => win.webContents.executeJavaScript('toggleGrid()') },
+                { label: 'Каркас             Z', click: () => win.webContents.executeJavaScript('toggleWire()') },
                 { type: 'separator' },
                 { role: 'toggleDevTools', label: 'Инструменты разработчика' },
                 { role: 'resetZoom', label: 'Сбросить масштаб UI' },
@@ -123,38 +120,30 @@ function buildMenu() {
         {
             label: 'Добавить',
             submenu: [
-                { label: '⬛  Куб (Shift+C)', click: () => win.webContents.executeJavaScript("addObj('box')") },
-                { label: '🔵  Сфера (Shift+S)', click: () => win.webContents.executeJavaScript("addObj('sphere')") },
-                { label: '🔷  Цилиндр (Shift+Y)', click: () => win.webContents.executeJavaScript("addObj('cyl')") },
-                { label: '🔺  Конус (Shift+O)', click: () => win.webContents.executeJavaScript("addObj('cone')") },
-                { label: '⭕  Тор (Shift+T)', click: () => win.webContents.executeJavaScript("addObj('torus')") },
-                { label: '⬜  Плоскость (Shift+P)', click: () => win.webContents.executeJavaScript("addObj('plane')") },
+                { label: '⬛  Куб          Shift+C', click: () => win.webContents.executeJavaScript("addObj('box')") },
+                { label: '🔵  Сфера       Shift+S', click: () => win.webContents.executeJavaScript("addObj('sphere')") },
+                { label: '🔷  Цилиндр     Shift+Y', click: () => win.webContents.executeJavaScript("addObj('cyl')") },
+                { label: '🔺  Конус       Shift+O', click: () => win.webContents.executeJavaScript("addObj('cone')") },
+                { label: '⭕  Тор         Shift+T', click: () => win.webContents.executeJavaScript("addObj('torus')") },
+                { label: '⬜  Плоскость   Shift+P', click: () => win.webContents.executeJavaScript("addObj('plane')") },
             ],
         },
         {
             label: 'Справка',
-            submenu: [
-                {
-                    label: 'О программе',
-                    click: () => {
-                        dialog.showMessageBox(win, {
-                            type: 'info',
-                            title: 'Ren3D',
-                            message: 'Ren3D v2.0',
-                            detail: 'Локальный 3D-редактор\nРаботает полностью офлайн\n\nПостроен на Electron + Three.js',
-                            buttons: ['OK'],
-                        });
-                    },
-                },
-            ],
+            submenu: [{
+                label: 'О программе',
+                click: () => dialog.showMessageBox(win, {
+                    type: 'info', title: 'Ren3D', message: 'Ren3D v2.0',
+                    detail: 'Локальный 3D-редактор\nРаботает полностью офлайн\n\nПостроен на Electron + Three.js',
+                    buttons: ['OK'],
+                }),
+            }],
         },
     ];
-
     Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// ── IPC: нативный диалог сохранения файла ─────────────────
-// Вызывается из renderer через contextBridge (preload.js)
+// ── IPC: сохранение файла ──────────────────────────────────
 ipcMain.handle('save-file', async (_e, { defaultName, content }) => {
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
         defaultPath: defaultName,
@@ -165,15 +154,11 @@ ipcMain.handle('save-file', async (_e, { defaultName, content }) => {
         ],
     });
     if (canceled || !filePath) return { ok: false };
-    try {
-        fs.writeFileSync(filePath, content, 'utf8');
-        return { ok: true, filePath };
-    } catch (err) {
-        return { ok: false, error: err.message };
-    }
+    try { fs.writeFileSync(filePath, content, 'utf8'); return { ok: true, filePath }; }
+    catch (err) { return { ok: false, error: err.message }; }
 });
 
-// ── IPC: нативный диалог открытия файла ───────────────────
+// ── IPC: открытие файла ────────────────────────────────────
 ipcMain.handle('open-file', async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog(win, {
         properties: ['openFile'],
@@ -186,42 +171,57 @@ ipcMain.handle('open-file', async () => {
     try {
         const content = fs.readFileSync(filePaths[0]);
         return { name: path.basename(filePaths[0]), buffer: content.buffer, path: filePaths[0] };
-    } catch (err) {
-        return null;
-    }
+    } catch { return null; }
 });
 
-// ── Жизненный цикл ────────────────────────────────────────
-// ── Auto-updater IPC ─────────────────────────────────────────
+// ── IPC: авто-обновление (пишем в userData, не в .asar) ───
 ipcMain.handle('update-app', async (_e, html) => {
-    const indexPath = path.join(__dirname, 'src', 'index.html');
     try {
-        // Backup current version
-        fs.writeFileSync(indexPath + '.bak', fs.readFileSync(indexPath));
-        // Write new version
-        fs.writeFileSync(indexPath, html, 'utf8');
+        fs.mkdirSync(USER_DATA, { recursive: true });
+        if (fs.existsSync(UPDATED_HTML)) {
+            fs.copyFileSync(UPDATED_HTML, UPDATED_HTML + '.bak');
+        }
+        fs.writeFileSync(UPDATED_HTML, html, 'utf8');
         return { ok: true };
     } catch (err) {
-        // Restore backup on failure
-        try { fs.writeFileSync(indexPath, fs.readFileSync(indexPath + '.bak')); } catch { }
+        try {
+            if (fs.existsSync(UPDATED_HTML + '.bak')) {
+                fs.copyFileSync(UPDATED_HTML + '.bak', UPDATED_HTML);
+            }
+        } catch { }
         return { ok: false, error: err.message };
     }
 });
 
 ipcMain.handle('reload-app', () => {
-    if (win) win.webContents.reloadIgnoringCache();
+    if (win) win.loadFile(getIndexPath());
 });
 
-app.whenReady().then(createWindow);
+// ── IPC: скачивание URL через main process ────────────────
+// На Linux renderer не может напрямую скачать index.html с GitHub
+// из-за CORS/webSecurity ограничений в Electron. Делаем в main process.
+ipcMain.handle('download-url', (_e, url) => new Promise((resolve) => {
+    const get = (url, hops = 0) => {
+        if (hops > 5) return resolve({ ok: false, error: 'Too many redirects' });
+        const mod = url.startsWith('https') ? https : http;
+        mod.get(url, (res) => {
+            if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                return get(res.headers.location, hops + 1);
+            }
+            if (res.statusCode !== 200) return resolve({ ok: false, error: `HTTP ${res.statusCode}` });
+            const chunks = [];
+            res.on('data', c => chunks.push(c));
+            res.on('end', () => resolve({ ok: true, data: Buffer.concat(chunks).toString('utf8') }));
+            res.on('error', e => resolve({ ok: false, error: e.message }));
+        }).on('error', e => resolve({ ok: false, error: e.message }));
+    };
+    get(url);
+}));
 
+// ── Жизненный цикл ────────────────────────────────────────
+app.whenReady().then(createWindow);
 app.on('second-instance', () => {
     if (win) { if (win.isMinimized()) win.restore(); win.focus(); }
 });
-
-app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit();
-});
-
-app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-});
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

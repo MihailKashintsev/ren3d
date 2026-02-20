@@ -1080,7 +1080,7 @@
                     <div class="dd-item" onclick="frameAll()">Показать всё <span class="ks">Home</span></div>
                     <div class="dd-item" onclick="frameSel()">Показать выбранное <span class="ks">F</span></div>
                     <div class="dd-sep"></div>
-                    <div class="dd-item" onclick="toggleGrid()">Сетка <span class="ks">T</span></div>
+                    <div class="dd-item" onclick="toggleGrid()">Сетка <span class="ks">G</span></div>
                     <div class="dd-item" onclick="toggleWire()">Каркас <span class="ks">Z</span></div>
                 </div>
             </div>
@@ -1139,7 +1139,7 @@
 
         <!-- ═══ VIEWPORT ═══ -->
         <div id="vp">
-            <canvas id="c3d" tabindex="-1"></canvas>
+            <canvas id="c3d"></canvas>
 
             <div id="tm-bar">
                 <button class="tm-btn active" id="tmb-none" onclick="setGizmoMode('none')" title="Выбор (Q)">✦ Выбор</button>
@@ -1247,11 +1247,7 @@
                 <span class="kbd">Del</span>Удалить
                 <span class="kbd">Ctrl+D</span>Дублировать
                 <span class="kbd">Ctrl+J</span>Объединить
-                <span class="kbd">G</span>Move
-                <span class="kbd">R</span>Rot
-                <span class="kbd">S</span>Scale
                 <span class="kbd">Z</span>Каркас
-                <span class="kbd">T</span>Сетка
             </div>
         </div>
     </div>
@@ -1324,27 +1320,13 @@
             canvas.addEventListener('mouseup', onMU);
             canvas.addEventListener('wheel', onWheel, { passive: false });
             canvas.addEventListener('contextmenu', onCtx);
-
-            // FIX LINUX KEYBOARD:
-            // На Linux после клика на canvas фокус уходит туда и window перестаёт
-            // получать keydown даже с capture:true. Решение:
-            // 1. canvas получает tabIndex="-1" (в HTML) — теперь он focusable
-            // 2. После каждого клика на canvas — вешаем keydown и на него тоже
-            // 3. canvas никогда не держит фокус дольше необходимого — blur сразу
-            canvas.addEventListener('keydown', onKey, true);
-            canvas.addEventListener('mousedown', () => {
-                // После клика canvas получит фокус — это нормально,
-                // но мы также слушаем keydown прямо на нём (см. выше)
-            });
-            // Дополнительно слушаем на document и window — тройная страховка
-            document.addEventListener('keydown', onKey, true);
+            // FIX: capture=true гарантирует получение событий на Linux даже когда фокус на canvas
+            // Слушаем keydown на window и document (тройная страховка для Linux)
             window.addEventListener('keydown', onKey, true);
-            window.addEventListener('resize', resize);
-            document.addEventListener('click', closeMenus);
+            document.addEventListener('keydown', onKey, true);
 
-            // FIX LINUX CTRL SHORTCUTS:
-            // На Linux Electron перехватывает Ctrl+клавиши до того как они доходят до страницы.
-            // main.js ловит их через before-input-event и пересылает сюда через IPC.
+            // FIX LINUX CTRL+KEY: main.js ловит Ctrl+клавиши через before-input-event
+            // и присылает их сюда через IPC т.к. они не доходят до renderer напрямую.
             if (window.electronAPI && window.electronAPI.onCtrlKey) {
                 window.electronAPI.onCtrlKey(({ key, shift }) => {
                     switch (key) {
@@ -1355,12 +1337,12 @@
                         case 'i': doImport(); break;
                         case 'e': exportSTL(); break;
                         case 'n': newScene(); break;
-                        case 'j':
-                            if (shift) { boolOp('subtract'); } else { boolOp('union'); }
-                            break;
+                        case 'j': shift ? boolOp('subtract') : boolOp('union'); break;
                     }
                 });
             }
+            window.addEventListener('resize', resize);
+            document.addEventListener('click', closeMenus);
 
             animate();
             updateStats();
@@ -2449,25 +2431,22 @@
         //  5. Исправлен дублирующийся case 'j' (был синтаксический баг)
         // ═══════════════════════════════════════════════════════════
 
-        // Дедупликация: onKey может вызваться несколько раз (window + document + canvas)
-        // Используем флаг чтобы один keydown обрабатывался ровно один раз
-        let _lastKeyTime = 0, _lastKeyCode = '';
-
+        // Дедупликация: onKey слушается на window И document одновременно
+        let _lastKeyId = '';
         function onKey(e) {
             // Игнорировать если фокус в поле ввода
             const tag = e.target.tagName;
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-            // Дедупликация повторных вызовов (window + document + canvas слушают одновременно)
-            const keyId = e.timeStamp + '_' + e.code;
-            if (keyId === _lastKeyCode) return;
-            _lastKeyCode = keyId;
+            // Дедупликация (window + document слушают одновременно)
+            const kid = e.timeStamp + '|' + e.code;
+            if (kid === _lastKeyId) return;
+            _lastKeyId = kid;
 
-            // Нормализуем регистр — на Linux Shift+буква может дать заглавную или строчную
-            const key = e.key.toLowerCase();
-
-            // ── Ctrl / Cmd ────────────────────────────────────────
+            // Ctrl+клавиши на Linux обрабатываются через IPC (onCtrlKey выше).
+            // На Windows/Mac они доходят до renderer нормально — обрабатываем здесь.
             if (e.ctrlKey || e.metaKey) {
+                const key = e.key.toLowerCase();
                 switch (key) {
                     case 'z': e.preventDefault(); undo(); return;
                     case 'y': e.preventDefault(); redo(); return;
@@ -2478,15 +2457,14 @@
                     case 'n': e.preventDefault(); newScene(); return;
                     case 'j':
                         e.preventDefault();
-                        if (e.shiftKey) { boolOp('subtract'); } else { boolOp('union'); }
+                        e.shiftKey ? boolOp('subtract') : boolOp('union');
                         return;
                 }
                 return;
             }
 
-            // ── Shift + буква ─────────────────────────────────────
-            // Используем e.code — физический код клавиши, не зависит от
-            // раскладки и от того заглавная буква или нет на Linux
+            // Shift+буква через e.code — физический код клавиши,
+            // не зависит от раскладки (русская/английская) и регистра
             if (e.shiftKey) {
                 e.preventDefault();
                 switch (e.code) {
@@ -2500,26 +2478,20 @@
                 return;
             }
 
-            // ── Одиночные клавиши ─────────────────────────────────
-            // Delete / Escape / F / Home — по key
-            switch (key) {
-                case 'delete': deleteSel(); return;
-                case 'backspace': deleteSel(); return;
-                case 'escape': deselectAll(); return;
-                case 'f': frameSel(); return;
-                case 'home': frameAll(); return;
-            }
-
-            // Используем e.code — работает на любой раскладке включая русскую
-            // (на русской e.key = 'п'/'я'/'й' и т.д., а e.code всегда 'KeyG'/'KeyZ'/'KeyQ')
-            if (!e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            // Одиночные клавиши без модификаторов — e.code для независимости от раскладки
+            if (!e.ctrlKey && !e.metaKey && !e.altKey) {
                 switch (e.code) {
-                    case 'KeyQ': setTool('sel'); return;  // Q = выбор
-                    case 'KeyG': setTool('move'); return;  // G = перемещение
-                    case 'KeyR': setTool('rot'); return;  // R = вращение
-                    case 'KeyS': setTool('scale'); return;  // S = масштаб
-                    case 'KeyZ': toggleWire(); return;  // Z = каркас
-                    case 'KeyT': toggleGrid(); return;  // T = сетка (G занят под move)
+                    case 'Delete': deleteSel(); return;
+                    case 'Backspace': deleteSel(); return;
+                    case 'Escape': deselectAll(); return;
+                    case 'KeyF': frameSel(); return;
+                    case 'Home': frameAll(); return;
+                    case 'KeyZ': toggleWire(); return;
+                    case 'KeyT': toggleGrid(); return;
+                    case 'KeyQ': setTool('sel'); return;
+                    case 'KeyG': setTool('move'); return;
+                    case 'KeyR': setTool('rot'); return;
+                    case 'KeyS': setTool('scale'); return;
                 }
             }
         }
@@ -2643,7 +2615,7 @@
         //  AUTO-UPDATER
         // ═══════════════════════════════════════════════════════════
 
-        const APP_VERSION = '2.0.4';
+        const APP_VERSION = '2.0.5';
         const GITHUB_USER = 'MihailKashintsev';
         const GITHUB_REPO = 'ren3d';
         const GITHUB_BRANCH = 'master';
@@ -2743,11 +2715,23 @@
             bar.style.width = '15%';
 
             try {
-                const resp = await fetch(APP_URL + '?t=' + Date.now());
-                if (!resp.ok) throw new Error('Download failed: ' + resp.status);
+                let html;
+
+                // На Linux fetch не работает для внешних URL в Electron renderer.
+                // Используем IPC-канал downloadUrl — скачивание идёт через main process.
+                if (window.electronAPI && window.electronAPI.downloadUrl) {
+                    const dl = await window.electronAPI.downloadUrl(APP_URL + '?t=' + Date.now());
+                    if (!dl.ok) throw new Error('Download failed: ' + dl.error);
+                    html = dl.data;
+                } else {
+                    // Fallback для браузера / dev-режима
+                    const resp = await fetch(APP_URL + '?t=' + Date.now());
+                    if (!resp.ok) throw new Error('Download failed: ' + resp.status);
+                    html = await resp.text();
+                }
 
                 bar.style.width = '60%';
-                const html = await resp.text();
+                if (!html || html.length < 1000) throw new Error('Downloaded file is empty or corrupted');
                 bar.style.width = '85%';
 
                 if (window.electronAPI && window.electronAPI.updateApp) {
@@ -2779,12 +2763,21 @@
 
         async function checkForUpdates() {
             try {
-                const resp = await fetch(VERSION_URL + '?t=' + Date.now(), {
-                    signal: AbortSignal.timeout(8000)
-                });
-                if (!resp.ok) return;
+                let data;
 
-                const data = await resp.json();
+                // На Linux используем IPC для скачивания через main process
+                if (window.electronAPI && window.electronAPI.downloadUrl) {
+                    const dl = await window.electronAPI.downloadUrl(VERSION_URL + '?t=' + Date.now());
+                    if (!dl.ok) return;
+                    data = JSON.parse(dl.data);
+                } else {
+                    const resp = await fetch(VERSION_URL + '?t=' + Date.now(), {
+                        signal: AbortSignal.timeout(8000)
+                    });
+                    if (!resp.ok) return;
+                    data = await resp.json();
+                }
+
                 const latest = data.version;
 
                 if (latest && latest !== APP_VERSION && isNewerVersion(latest, APP_VERSION)) {
