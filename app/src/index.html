@@ -959,7 +959,7 @@ function init() {
   canvas.addEventListener('mouseup', onMU);
   canvas.addEventListener('wheel', onWheel, {passive:false});
   canvas.addEventListener('contextmenu', onCtx);
-  window.addEventListener('keydown', onKey);
+  window.addEventListener('keydown', onKey, true); // capture=true fixes Linux focus issues
   window.addEventListener('resize', resize);
   document.addEventListener('click', closeMenus);
 
@@ -1138,13 +1138,26 @@ function updateSelUI() {
     noSel.style.display='none'; props.style.display='block';
     updatePropsPanel();
   } else {
-    noSel.style.display='flex'; props.style.display='none';
-    if (sel.length===0) {
-      noSel.innerHTML='<div class="nosel-ico">◈</div><span style="color:var(--ink-dim)">Ничего не выбрано</span><span style="color:var(--ink-ghost);font-size:10px">Кликните на объект</span>';
-    } else {
-      noSel.innerHTML=`<div class="nosel-ico">◈</div><span style="color:var(--ink-dim)">Выбрано: ${sel.length}</span><span style="color:var(--ink-ghost);font-size:10px">Для свойств выберите 1</span>`;
-    }
+        if (sel.length === 0) {
+            noSel.style.display = 'flex'; props.style.display = 'none';
+            noSel.innerHTML = '<div class="nosel-ico">◈</div><span style="color:var(--ink-dim)">Ничего не выбрано</span><span style="color:var(--ink-ghost);font-size:10px">Кликните на объект</span>';
+        } else {
+            // 2+ объекта: показываем только Boolean-секцию
+            noSel.style.display = 'none';
+            props.style.display = 'block';
+            // Прячем все секции кроме Boolean
+            props.querySelectorAll('.prop-sec').forEach((sec, i) => {
+                // Boolean-секция — третья (index 2)
+                sec.style.display = (i === 2) ? 'block' : 'none';
+            });
+            // Обновляем подсказку в bool-hint
+            const hint = props.querySelector('.bool-hint');
+            if (hint) hint.innerHTML = `Выбрано: <b style="color:var(--cyan)">${sel.length}</b> объекта. Применить операцию:<br><span style="color:var(--ink-dim)">Ctrl+J — Объединить &nbsp;|&nbsp; Ctrl+Shift+J — Вычесть</span>`;
+        }
+        return;
   }
+    // При одиночном выделении — показываем все секции обратно
+    props.querySelectorAll('.prop-sec').forEach(sec => sec.style.display = 'block');
 }
 
 // ── Props Panel ──
@@ -2147,42 +2160,65 @@ function newScene() {
 // ═══════════════════════════════════════════════════════════
 
 function onKey(e) {
-  if (e.target.tagName==='INPUT') return;
-  if (e.ctrlKey||e.metaKey) {
-    switch(e.key.toLowerCase()) {
-      case 'z': e.preventDefault(); undo(); break;
-      case 'y': e.preventDefault(); redo(); break;
-      case 'd': e.preventDefault(); duplicateSel(); break;
-      case 'a': e.preventDefault(); selectAll(); break;
-      case 'i': e.preventDefault(); doImport(); break;
-      case 'e': e.preventDefault(); exportSTL(); break;
-      case 'n': e.preventDefault(); newScene(); break;
+    // Ignore when typing in input fields
+    const tag = e.target.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+    // Normalize key: on Linux Shift+key may give uppercase or lowercase inconsistently
+    const key = e.key.toLowerCase();
+
+    if (e.ctrlKey || e.metaKey) {
+        switch (key) {
+            case 'z': e.preventDefault(); undo(); return;
+            case 'y': e.preventDefault(); redo(); return;
+            case 'd': e.preventDefault(); duplicateSel(); return;
+            case 'a': e.preventDefault(); selectAll(); return;
+            case 'i': e.preventDefault(); doImport(); return;
+            case 'e': e.preventDefault(); exportSTL(); return;
+            case 'n': e.preventDefault(); newScene(); return;
+            // Ctrl+J = Boolean Union для выделенных объектов
+            case 'j': e.preventDefault(); boolOp('union'); return;
+            // Ctrl+Shift+J = Boolean Subtract
+            case 'j':
+                if (e.shiftKey) { e.preventDefault(); boolOp('subtract'); return; }
+                e.preventDefault(); boolOp('union'); return;
+        }
+        return;
     }
-    return;
-  }
-  if (e.shiftKey) {
-    switch(e.key.toLowerCase()) {
-      case 'c': addObj('box'); break;
-      case 's': addObj('sphere'); break;
-      case 'y': addObj('cyl'); break;
-      case 'o': addObj('cone'); break;
-      case 't': addObj('torus'); break;
-      case 'p': addObj('plane'); break;
+
+    if (e.shiftKey) {
+        switch (key) {
+            case 'c': e.preventDefault(); addObj('box'); return;
+            case 's': e.preventDefault(); addObj('sphere'); return;
+            case 'y': e.preventDefault(); addObj('cyl'); return;
+            case 'o': e.preventDefault(); addObj('cone'); return;
+            case 't': e.preventDefault(); addObj('torus'); return;
+            case 'p': e.preventDefault(); addObj('plane'); return;
+        }
+        return;
     }
-    return;
-  }
-  switch(e.key) {
-    case 'Delete': case 'Backspace': deleteSel(); break;
-    case 'Escape': deselectAll(); break;
-    case 'f': case 'F': frameSel(); break;
-    case 'g': toggleGrid(); break;
-    case 'z': toggleWire(); break;
-    case 'q': case 'Q': setTool('sel'); break;
-    case 'G': setTool('move'); break;
-    case 'r': case 'R': setTool('rot'); break;
-    case 's': setTool('scale'); break;
-    case 'Home': frameAll(); break;
-  }
+
+    switch (key) {
+        case 'delete':
+        case 'backspace': deleteSel(); break;
+        case 'escape': deselectAll(); break;
+        case 'f': frameSel(); break;
+        case 'g': toggleGrid(); break;
+        case 'z': toggleWire(); break;
+        case 'q': setTool('sel'); break;
+        // Note: 'G' (shift+g) is handled above in shiftKey block — 
+        // but 'G' for move tool was uppercase-only. Keep both:
+        case 'home': frameAll(); break;
+    }
+    // Tool shortcuts without shift (single key)
+    if (!e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        switch (e.code) {
+            case 'KeyQ': setTool('sel'); break;
+            case 'KeyG': setTool('move'); break;
+            case 'KeyR': setTool('rot'); break;
+            case 'KeyS': setTool('scale'); break;
+        }
+    }
 }
 
 // ═══════════════════════════════════════════════════════════
