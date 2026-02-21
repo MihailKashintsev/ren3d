@@ -1,6 +1,6 @@
 {
   "name": "ren3d",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Local offline 3D editor",
   "main": "main.js",
   "homepage": "https://github.com/MihailKashintsev/ren3d",
