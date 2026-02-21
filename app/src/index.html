@@ -1035,15 +1035,23 @@
         /* ── RESIZABLE PANELS ── */
         .panel-resize-handle {
             position: absolute;
-            top: 0; bottom: 0;
+            top: 0;
+            bottom: 0;
             width: 5px;
             cursor: col-resize;
             background: transparent;
             transition: background 0.15s;
             z-index: 50;
         }
-        #left .panel-resize-handle  { right: -2px; }
-        #right .panel-resize-handle { left:  -2px; }
+
+        #left .panel-resize-handle {
+            right: -2px;
+        }
+
+        #right .panel-resize-handle {
+            left: -2px;
+        }
+
         .panel-resize-handle:hover, .panel-resize-handle.dragging {
             background: rgba(0,212,255,0.4);
         }
@@ -1135,7 +1143,8 @@
                 <div class="dropdown" id="dd-file">
                     <div class="dd-item" onclick="newScene()">Новая сцена <span class="ks">Ctrl+N</span></div>
                     <div class="dd-sep"></div>
-                    <div class="dd-item" onclick="saveProject()">Сохранить проект <span class="ks">Ctrl+S</span></div>
+                    <div class="dd-item" onclick="saveProject()">Сохранить <span class="ks">Ctrl+S</span></div>
+                    <div class="dd-item" onclick="saveProjectAs()">Сохранить как... <span class="ks">Ctrl+Shift+S</span></div>
                     <div class="dd-item" onclick="openProject()">Открыть проект <span class="ks">Ctrl+O</span></div>
                     <div class="dd-sep"></div>
                     <div class="dd-item" onclick="doImport()">Импорт .stl/.obj <span class="ks">Ctrl+I</span></div>
@@ -1375,6 +1384,7 @@
         let gizmoActive = false, gizmoAxis = null;
 
         let undoStack = [], redoStack = [];
+        let currentProjectPath = null;  // путь к открытому .r3d файлу
 
         const PALETTE = ['#00d4ff', '#ff6b35', '#39ff8f', '#b78bff', '#ffe066', '#ff4466', '#4499ff', '#ffaa44'];
         let ci = 0;
@@ -1431,7 +1441,7 @@
                         case 'i': doImport(); break;
                         case 'e': showExportModal(); break;
                         case 'n': newScene(); break;
-                        case 's': saveProject(); break;
+                        case 's': shift ? saveProjectAs() : saveProject(); break;
                         case 'o': openProject(); break;
                         case 'j': shift ? boolOp('subtract') : boolOp('union'); break;
                     }
@@ -1669,29 +1679,29 @@
             let h = '';
             if (obj.type === 'box') {
                 h = `<div class="plabel">Размер</div><div class="v3">
-              <div class="vf"><label>Ш</label><input class="ni" id="gw" type="number" step="0.1" value="${p.w || 1}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>В</label><input class="ni" id="gh" type="number" step="0.1" value="${p.h || 1}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>Г</label><input class="ni" id="gd" type="number" step="0.1" value="${p.d || 1}" onchange="rebuildGeom()"></div></div>`;
+                  <div class="vf"><label>Ш</label><input class="ni" id="gw" type="number" step="0.1" value="${p.w || 1}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>В</label><input class="ni" id="gh" type="number" step="0.1" value="${p.h || 1}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>Г</label><input class="ni" id="gd" type="number" step="0.1" value="${p.d || 1}" onchange="rebuildGeom()"></div></div>`;
             } else if (obj.type === 'sphere') {
                 h = `<div class="plabel">Параметры</div><div class="v3">
-              <div class="vf"><label>Радиус</label><input class="ni" id="gr" type="number" step="0.1" value="${p.r || 0.5}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>Сег.W</label><input class="ni" id="gsw" type="number" step="1" value="${p.sw || 32}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>Сег.H</label><input class="ni" id="gsh" type="number" step="1" value="${p.sh || 16}" onchange="rebuildGeom()"></div></div>`;
+                  <div class="vf"><label>Радиус</label><input class="ni" id="gr" type="number" step="0.1" value="${p.r || 0.5}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>Сег.W</label><input class="ni" id="gsw" type="number" step="1" value="${p.sw || 32}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>Сег.H</label><input class="ni" id="gsh" type="number" step="1" value="${p.sh || 16}" onchange="rebuildGeom()"></div></div>`;
             } else if (obj.type === 'cyl') {
                 h = `<div class="plabel">Параметры</div><div class="v3">
-              <div class="vf"><label>R верх</label><input class="ni" id="grt" type="number" step="0.1" value="${p.rt || 0.5}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>R низ</label><input class="ni" id="grb" type="number" step="0.1" value="${p.rb || 0.5}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>Высота</label><input class="ni" id="gch" type="number" step="0.1" value="${p.h || 1}" onchange="rebuildGeom()"></div></div>`;
+                  <div class="vf"><label>R верх</label><input class="ni" id="grt" type="number" step="0.1" value="${p.rt || 0.5}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>R низ</label><input class="ni" id="grb" type="number" step="0.1" value="${p.rb || 0.5}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>Высота</label><input class="ni" id="gch" type="number" step="0.1" value="${p.h || 1}" onchange="rebuildGeom()"></div></div>`;
             } else if (obj.type === 'cone') {
                 h = `<div class="plabel">Параметры</div><div class="v3">
-              <div class="vf"><label>Радиус</label><input class="ni" id="gcor" type="number" step="0.1" value="${p.r || 0.5}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>Высота</label><input class="ni" id="gcoh" type="number" step="0.1" value="${p.h || 1}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>Сегм.</label><input class="ni" id="gcos" type="number" step="1" value="${p.s || 32}" onchange="rebuildGeom()"></div></div>`;
+                  <div class="vf"><label>Радиус</label><input class="ni" id="gcor" type="number" step="0.1" value="${p.r || 0.5}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>Высота</label><input class="ni" id="gcoh" type="number" step="0.1" value="${p.h || 1}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>Сегм.</label><input class="ni" id="gcos" type="number" step="1" value="${p.s || 32}" onchange="rebuildGeom()"></div></div>`;
             } else if (obj.type === 'torus') {
                 h = `<div class="plabel">Параметры</div><div class="v3">
-              <div class="vf"><label>R</label><input class="ni" id="gtr" type="number" step="0.1" value="${p.r || 0.5}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>Трубка</label><input class="ni" id="gtt" type="number" step="0.05" value="${p.t || 0.2}" onchange="rebuildGeom()"></div>
-              <div class="vf"><label>Сегм.</label><input class="ni" id="gts" type="number" step="1" value="${p.s || 32}" onchange="rebuildGeom()"></div></div>`;
+                  <div class="vf"><label>R</label><input class="ni" id="gtr" type="number" step="0.1" value="${p.r || 0.5}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>Трубка</label><input class="ni" id="gtt" type="number" step="0.05" value="${p.t || 0.2}" onchange="rebuildGeom()"></div>
+                  <div class="vf"><label>Сегм.</label><input class="ni" id="gts" type="number" step="1" value="${p.s || 32}" onchange="rebuildGeom()"></div></div>`;
             }
             el.innerHTML = h;
         }
@@ -1756,12 +1766,12 @@
             const tree = document.getElementById('tree-wrap');
             const icons = { box: '⬛', sphere: '🔵', cyl: '🔷', cone: '🔺', torus: '⭕', plane: '⬜', imported: '📦', merged: '🔲' };
             tree.innerHTML = objs.map(o => `
-            <div class="tree-node ${sel.includes(o) ? 'sel' : ''} ${o.mesh && !o.mesh.visible ? 'hidden-obj' : ''}"
-                 data-id="${o.id}" onclick="treeClick(event,${o.id})" ondblclick="treeDbClick(${o.id})">
-              <span class="tn-ico">${icons[o.type] || '📦'}</span>
-              <span class="tn-name">${o.name}</span>
-              <span class="tn-eye" onclick="toggleVis(event,${o.id})">👁</span>
-            </div>`).join('');
+                <div class="tree-node ${sel.includes(o) ? 'sel' : ''} ${o.mesh && !o.mesh.visible ? 'hidden-obj' : ''}"
+                     data-id="${o.id}" onclick="treeClick(event,${o.id})" ondblclick="treeDbClick(${o.id})">
+                  <span class="tn-ico">${icons[o.type] || '📦'}</span>
+                  <span class="tn-name">${o.name}</span>
+                  <span class="tn-eye" onclick="toggleVis(event,${o.id})">👁</span>
+                </div>`).join('');
             document.getElementById('obj-cnt').textContent = objs.length;
         }
 
@@ -2448,25 +2458,25 @@
             modal.className = 'modal-bg';
             modal.id = 'export-modal';
             modal.innerHTML = `
-                    <div class="modal-box" style="min-width:380px">
-                        <h3>Экспорт</h3>
-                        <p style="margin-bottom:10px">Область: <b style="color:var(--cyan)">${scope}</b></p>
-                        <div class="exp-opt" onclick="exportSTL();closeModal('export-modal')">
-                            <span class="eo-ico">📐</span>
-                            <div><div class="eo-title">STL</div><div class="eo-desc">Стандартный формат для 3D-печати</div></div>
-                        </div>
-                        <div class="exp-opt" onclick="exportOBJ();closeModal('export-modal')">
-                            <span class="eo-ico">📦</span>
-                            <div><div class="eo-title">OBJ + MTL</div><div class="eo-desc">Wavefront OBJ с материалами</div></div>
-                        </div>
-                        <div class="exp-opt" onclick="saveProject();closeModal('export-modal')">
-                            <span class="eo-ico">💾</span>
-                            <div><div class="eo-title">Проект .r3d</div><div class="eo-desc">Сохранить сцену для последующего открытия</div></div>
-                        </div>
-                        <div class="modal-btns" style="margin-top:12px">
-                            <button class="mbtn" onclick="closeModal('export-modal')">Отмена</button>
-                        </div>
-                    </div>`;
+                        <div class="modal-box" style="min-width:380px">
+                            <h3>Экспорт</h3>
+                            <p style="margin-bottom:10px">Область: <b style="color:var(--cyan)">${scope}</b></p>
+                            <div class="exp-opt" onclick="exportSTL();closeModal('export-modal')">
+                                <span class="eo-ico">📐</span>
+                                <div><div class="eo-title">STL</div><div class="eo-desc">Стандартный формат для 3D-печати</div></div>
+                            </div>
+                            <div class="exp-opt" onclick="exportOBJ();closeModal('export-modal')">
+                                <span class="eo-ico">📦</span>
+                                <div><div class="eo-title">OBJ + MTL</div><div class="eo-desc">Wavefront OBJ с материалами</div></div>
+                            </div>
+                            <div class="exp-opt" onclick="saveProject();closeModal('export-modal')">
+                                <span class="eo-ico">💾</span>
+                                <div><div class="eo-title">Проект .r3d</div><div class="eo-desc">Сохранить сцену для последующего открытия</div></div>
+                            </div>
+                            <div class="modal-btns" style="margin-top:12px">
+                                <button class="mbtn" onclick="closeModal('export-modal')">Отмена</button>
+                            </div>
+                        </div>`;
             document.body.appendChild(modal);
             modal.addEventListener('click', e => { if (e.target === modal) closeModal('export-modal'); });
         }
@@ -2529,7 +2539,7 @@
 
         function download(name, content) {
             if (window.electronAPI && window.electronAPI.saveFile) {
-                window.electronAPI.saveFile(name, content).then(res => {
+                window.electronAPI.saveFile(name, content, { saveAs: true }).then(res => {
                     if (res && res.ok) toast('Сохранено: ' + res.filePath.split(/[\/]/).pop());
                 });
             } else {
@@ -2660,18 +2670,48 @@
         //  PROJECT SAVE / OPEN
         // ═══════════════════════════════════════════════════════════
 
-        function saveProject() {
-            if (!objs.length) { toast('Нет объектов для сохранения'); return; }
-            const data = {
+        function _buildProjectJson() {
+            return JSON.stringify({
                 version: 1,
                 name: 'Ren3D Project',
                 saved: new Date().toISOString(),
                 objects: snapshot(),
-            };
-            const json = JSON.stringify(data, null, 2);
+            }, null, 2);
+        }
+
+        function saveProject() {
+            if (!objs.length) { toast('Нет объектов для сохранения'); return; }
+            const json = _buildProjectJson();
             if (window.electronAPI && window.electronAPI.saveFile) {
-                window.electronAPI.saveFile('project.r3d', json).then(res => {
-                    if (res && res.ok) toast('Проект сохранён: ' + res.filePath.split(/[\/]/).pop());
+                // Если файл уже открыт/сохранён — сохраняем без диалога
+                window.electronAPI.saveFile('project.r3d', json, {
+                    filePath: currentProjectPath || null,
+                    saveAs: !currentProjectPath,
+                }).then(res => {
+                    if (res && res.ok) {
+                        currentProjectPath = res.filePath;
+                        toast('Сохранено: ' + res.filePath.split(/[\/]/).pop());
+                    }
+                });
+            } else {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+                a.download = 'project.r3d'; a.click();
+                URL.revokeObjectURL(a.href);
+                toast('Проект сохранён!');
+            }
+            closeAllMenus();
+        }
+
+        function saveProjectAs() {
+            if (!objs.length) { toast('Нет объектов для сохранения'); return; }
+            const json = _buildProjectJson();
+            if (window.electronAPI && window.electronAPI.saveFile) {
+                window.electronAPI.saveFile('project.r3d', json, { saveAs: true }).then(res => {
+                    if (res && res.ok) {
+                        currentProjectPath = res.filePath;
+                        toast('Сохранено как: ' + res.filePath.split(/[\/]/).pop());
+                    }
                 });
             } else {
                 const a = document.createElement('a');
@@ -2696,15 +2736,17 @@
                     const data = JSON.parse(ev.target.result);
                     if (!data.objects) throw new Error('Неверный формат файла');
                     if (objs.length && !confirm('Открыть проект? Текущая сцена будет закрыта.')) return;
+                    currentProjectPath = null; // сбросим путь, обновим ниже
                     // Clear scene
                     objs.forEach(o => { scene.remove(o.mesh); o.mesh.geometry.dispose(); o.mesh.material.dispose(); });
-                    objs = []; sel = []; undoStack = []; redoStack = []; hideGizmoMesh();
+                    objs = []; sel = []; undoStack = []; redoStack = []; currentProjectPath = null; hideGizmoMesh();
                     // Restore
                     restoreSnapshot(data.objects);
                     // Restore counter
                     counter = {};
                     objs.forEach(o => { if (!counter[o.type]) counter[o.type] = 0; counter[o.type]++; });
                     document.getElementById('empty-hint').style.display = objs.length ? 'none' : 'block';
+                    currentProjectPath = null; // в браузере путь недоступен
                     toast('Проект открыт: ' + f.name);
                     if (objs.length) frameAll();
                 } catch (err) { toast('Ошибка открытия проекта: ' + err.message); }
@@ -2720,7 +2762,7 @@
         function newScene() {
             if (objs.length && !confirm('Создать новую сцену? Изменения будут потеряны.')) return;
             objs.forEach(o => { scene.remove(o.mesh); o.mesh.geometry.dispose(); o.mesh.material.dispose(); });
-            objs = []; sel = []; undoStack = []; redoStack = []; hideGizmoMesh();
+            objs = []; sel = []; undoStack = []; redoStack = []; currentProjectPath = null; hideGizmoMesh();
             updateTree(); updateStats(); updateSelUI();
             document.getElementById('empty-hint').style.display = 'block';
             closeAllMenus();
@@ -2815,7 +2857,7 @@
                     case 'i': e.preventDefault(); doImport(); return;
                     case 'e': e.preventDefault(); showExportModal(); return;
                     case 'n': e.preventDefault(); newScene(); return;
-                    case 's': e.preventDefault(); saveProject(); return;
+                    case 's': e.preventDefault(); e.shiftKey ? saveProjectAs() : saveProject(); return;
                     case 'o': e.preventDefault(); openProject(); return;
                     case 'j':
                         e.preventDefault();
@@ -2935,21 +2977,21 @@
 
             const multiSel = sel.length >= 2;
             const items = hits.length ? `
-            <div class="ctx-it" onclick="duplicateSel();closeCtx()">Дублировать <span style="color:var(--ink-dim)">Ctrl+D</span></div>
-            <div class="ctx-it" onclick="frameSel();closeCtx()">Фокус <span style="color:var(--ink-dim)">F</span></div>
-            ${multiSel ? `<div class="ctx-sep"></div>
-            <div class="ctx-it" onclick="boolOp('union');closeCtx()">⊕ Объединить <span style="color:var(--ink-dim)">Ctrl+J</span></div>
-            <div class="ctx-it" onclick="boolOp('subtract');closeCtx()">⊖ Вычесть <span style="color:var(--ink-dim)">Ctrl+Shift+J</span></div>
-            <div class="ctx-it" onclick="boolOp('intersect');closeCtx()">⊗ Пересечение</div>` : ''}
-            <div class="ctx-sep"></div>
-            <div class="ctx-it danger" onclick="deleteSel();closeCtx()">Удалить <span style="color:var(--ink-dim)">Del</span></div>
-          ` : `
-            <div class="ctx-it" onclick="addObj('box');closeCtx()">⬛ Добавить куб</div>
-            <div class="ctx-it" onclick="addObj('sphere');closeCtx()">🔵 Добавить сферу</div>
-            <div class="ctx-it" onclick="addObj('cyl');closeCtx()">🔷 Цилиндр</div>
-            <div class="ctx-sep"></div>
-            <div class="ctx-it" onclick="doImport();closeCtx()">⇪ Импорт модели</div>
-          `;
+                <div class="ctx-it" onclick="duplicateSel();closeCtx()">Дублировать <span style="color:var(--ink-dim)">Ctrl+D</span></div>
+                <div class="ctx-it" onclick="frameSel();closeCtx()">Фокус <span style="color:var(--ink-dim)">F</span></div>
+                ${multiSel ? `<div class="ctx-sep"></div>
+                <div class="ctx-it" onclick="boolOp('union');closeCtx()">⊕ Объединить <span style="color:var(--ink-dim)">Ctrl+J</span></div>
+                <div class="ctx-it" onclick="boolOp('subtract');closeCtx()">⊖ Вычесть <span style="color:var(--ink-dim)">Ctrl+Shift+J</span></div>
+                <div class="ctx-it" onclick="boolOp('intersect');closeCtx()">⊗ Пересечение</div>` : ''}
+                <div class="ctx-sep"></div>
+                <div class="ctx-it danger" onclick="deleteSel();closeCtx()">Удалить <span style="color:var(--ink-dim)">Del</span></div>
+              ` : `
+                <div class="ctx-it" onclick="addObj('box');closeCtx()">⬛ Добавить куб</div>
+                <div class="ctx-it" onclick="addObj('sphere');closeCtx()">🔵 Добавить сферу</div>
+                <div class="ctx-it" onclick="addObj('cyl');closeCtx()">🔷 Цилиндр</div>
+                <div class="ctx-sep"></div>
+                <div class="ctx-it" onclick="doImport();closeCtx()">⇪ Импорт модели</div>
+              `;
 
             let ctx = document.getElementById('ren-ctx');
             if (!ctx) { ctx = document.createElement('div'); ctx.className = 'ctx'; ctx.id = 'ren-ctx'; document.body.appendChild(ctx); }
@@ -2979,7 +3021,7 @@
         //  AUTO-UPDATER
         // ═══════════════════════════════════════════════════════════
 
-        const APP_VERSION = '2.1.2';
+        const APP_VERSION = '2.1.3';
         const GITHUB_USER = 'MihailKashintsev';
         const GITHUB_REPO = 'ren3d';
         const GITHUB_BRANCH = 'master';
@@ -2989,67 +3031,67 @@
         (function injectUpdateStyles() {
             const s = document.createElement('style');
             s.textContent = `
-            #update-banner {
-              position: fixed;
-              bottom: 32px; left: 50%; transform: translateX(-50%);
-              background: rgba(0,212,255,0.12);
-              border: 1px solid rgba(0,212,255,0.35);
-              backdrop-filter: blur(20px);
-              border-radius: 12px;
-              padding: 14px 22px;
-              display: flex; align-items: center; gap: 14px;
-              color: rgba(255,255,255,0.92);
-              font-family: 'Syne', sans-serif;
-              font-size: 13px;
-              z-index: 99999;
-              box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 20px rgba(0,212,255,0.15);
-              opacity: 0; pointer-events: none;
-              transition: opacity 0.4s ease;
-            }
-            #update-banner.visible { opacity: 1; pointer-events: all; }
-            #update-banner .upd-icon { font-size: 18px; }
-            #update-banner .upd-text { flex: 1; }
-            #update-banner .upd-version { color: #00d4ff; font-weight: 600; }
-            #update-banner .upd-btn {
-              background: rgba(0,212,255,0.2);
-              border: 1px solid rgba(0,212,255,0.4);
-              border-radius: 7px;
-              color: #00d4ff;
-              font-family: 'Syne', sans-serif;
-              font-size: 12px; font-weight: 600;
-              padding: 6px 14px; cursor: pointer;
-              transition: background 0.2s;
-            }
-            #update-banner .upd-btn:hover { background: rgba(0,212,255,0.35); }
-            #update-banner .upd-btn.upd-dismiss {
-              background: transparent; border-color: rgba(255,255,255,0.15);
-              color: rgba(255,255,255,0.4);
-            }
-            #update-banner .upd-btn.upd-dismiss:hover { color: rgba(255,255,255,0.7); }
-            #update-progress {
-              position: fixed; bottom: 0; left: 0; right: 0;
-              height: 3px; background: rgba(0,212,255,0.15);
-              z-index: 99999; opacity: 0; transition: opacity 0.3s;
-            }
-            #update-progress-bar {
-              height: 100%; width: 0%;
-              background: linear-gradient(90deg, #00d4ff, #4499ff);
-              transition: width 0.3s ease;
-            }
-          `;
+                #update-banner {
+                  position: fixed;
+                  bottom: 32px; left: 50%; transform: translateX(-50%);
+                  background: rgba(0,212,255,0.12);
+                  border: 1px solid rgba(0,212,255,0.35);
+                  backdrop-filter: blur(20px);
+                  border-radius: 12px;
+                  padding: 14px 22px;
+                  display: flex; align-items: center; gap: 14px;
+                  color: rgba(255,255,255,0.92);
+                  font-family: 'Syne', sans-serif;
+                  font-size: 13px;
+                  z-index: 99999;
+                  box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 20px rgba(0,212,255,0.15);
+                  opacity: 0; pointer-events: none;
+                  transition: opacity 0.4s ease;
+                }
+                #update-banner.visible { opacity: 1; pointer-events: all; }
+                #update-banner .upd-icon { font-size: 18px; }
+                #update-banner .upd-text { flex: 1; }
+                #update-banner .upd-version { color: #00d4ff; font-weight: 600; }
+                #update-banner .upd-btn {
+                  background: rgba(0,212,255,0.2);
+                  border: 1px solid rgba(0,212,255,0.4);
+                  border-radius: 7px;
+                  color: #00d4ff;
+                  font-family: 'Syne', sans-serif;
+                  font-size: 12px; font-weight: 600;
+                  padding: 6px 14px; cursor: pointer;
+                  transition: background 0.2s;
+                }
+                #update-banner .upd-btn:hover { background: rgba(0,212,255,0.35); }
+                #update-banner .upd-btn.upd-dismiss {
+                  background: transparent; border-color: rgba(255,255,255,0.15);
+                  color: rgba(255,255,255,0.4);
+                }
+                #update-banner .upd-btn.upd-dismiss:hover { color: rgba(255,255,255,0.7); }
+                #update-progress {
+                  position: fixed; bottom: 0; left: 0; right: 0;
+                  height: 3px; background: rgba(0,212,255,0.15);
+                  z-index: 99999; opacity: 0; transition: opacity 0.3s;
+                }
+                #update-progress-bar {
+                  height: 100%; width: 0%;
+                  background: linear-gradient(90deg, #00d4ff, #4499ff);
+                  transition: width 0.3s ease;
+                }
+              `;
             document.head.appendChild(s);
 
             const banner = document.createElement('div');
             banner.id = 'update-banner';
             banner.innerHTML = `
-            <span class="upd-icon">🔄</span>
-            <span class="upd-text">
-              New version available: <span class="upd-version" id="upd-new-ver"></span>
-              &nbsp;·&nbsp; Current: <span style="color:rgba(255,255,255,0.45)">${APP_VERSION}</span>
-            </span>
-            <button class="upd-btn" id="upd-install-btn" onclick="installUpdate()">Update now</button>
-            <button class="upd-btn upd-dismiss" onclick="dismissUpdate()">Later</button>
-          `;
+                <span class="upd-icon">🔄</span>
+                <span class="upd-text">
+                  New version available: <span class="upd-version" id="upd-new-ver"></span>
+                  &nbsp;·&nbsp; Current: <span style="color:rgba(255,255,255,0.45)">${APP_VERSION}</span>
+                </span>
+                <button class="upd-btn" id="upd-install-btn" onclick="installUpdate()">Update now</button>
+                <button class="upd-btn upd-dismiss" onclick="dismissUpdate()">Later</button>
+              `;
             document.body.appendChild(banner);
 
             const prog = document.createElement('div');

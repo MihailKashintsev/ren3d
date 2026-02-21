@@ -144,18 +144,36 @@ function buildMenu() {
 }
 
 // ── IPC: сохранение файла ──────────────────────────────────
-ipcMain.handle('save-file', async (_e, { defaultName, content }) => {
-    const { canceled, filePath } = await dialog.showSaveDialog(win, {
-        defaultPath: defaultName,
-        filters: [
-            { name: 'STL Files', extensions: ['stl'] },
-            { name: 'OBJ Files', extensions: ['obj'] },
-            { name: 'All Files', extensions: ['*'] },
-        ],
-    });
-    if (canceled || !filePath) return { ok: false };
-    try { fs.writeFileSync(filePath, content, 'utf8'); return { ok: true, filePath }; }
-    catch (err) { return { ok: false, error: err.message }; }
+// filters — опциональный массив { name, extensions[] }
+// saveAs  — если false и filePath передан, сохраняем без диалога
+ipcMain.handle('save-file', async (_e, { defaultName, content, filters, filePath: existingPath, saveAs }) => {
+    let filePath = existingPath;
+
+    // Открываем диалог если saveAs=true или нет существующего пути
+    if (saveAs || !filePath) {
+        const ext = (defaultName || '').split('.').pop().toLowerCase();
+        const defaultFilters = ext === 'r3d'
+            ? [{ name: 'Ren3D Project', extensions: ['r3d'] }, { name: 'All Files', extensions: ['*'] }]
+            : ext === 'stl'
+                ? [{ name: 'STL Files', extensions: ['stl'] }, { name: 'All Files', extensions: ['*'] }]
+                : ext === 'obj'
+                    ? [{ name: 'OBJ Files', extensions: ['obj'] }, { name: 'All Files', extensions: ['*'] }]
+                    : [{ name: 'All Files', extensions: ['*'] }];
+
+        const result = await dialog.showSaveDialog(win, {
+            defaultPath: defaultName,
+            filters: filters || defaultFilters,
+        });
+        if (result.canceled || !result.filePath) return { ok: false };
+        filePath = result.filePath;
+    }
+
+    try {
+        fs.writeFileSync(filePath, content, 'utf8');
+        return { ok: true, filePath };
+    } catch (err) {
+        return { ok: false, error: err.message };
+    }
 });
 
 // ── IPC: открытие файла ────────────────────────────────────
