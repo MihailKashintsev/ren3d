@@ -1034,21 +1034,18 @@
 
         /* ── RESIZABLE PANELS ── */
         .panel-resize-handle {
-            width: 4px;
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 5px;
             cursor: col-resize;
             background: transparent;
-            transition: background 0.2s;
-            z-index: 10;
-            flex-shrink: 0;
-            position: relative;
+            transition: background 0.15s;
+            z-index: 50;
         }
-
-            .panel-resize-handle:hover, .panel-resize-handle.dragging {
-                background: rgba(0,212,255,0.35);
-            }
-
-        #app {
-            grid-template-columns: var(--panel-w) 1fr var(--panel-w);
+        #left .panel-resize-handle  { right: -2px; }
+        #right .panel-resize-handle { left:  -2px; }
+        .panel-resize-handle:hover, .panel-resize-handle.dragging {
+            background: rgba(0,212,255,0.4);
         }
 
         /* ── RENAME INPUT ── */
@@ -2773,21 +2770,22 @@
                 });
             }
 
-            // Insert resize handles dynamically next to panels
+            // Handles внутри панелей как absolute overlay — не ломают grid
             const left = document.getElementById('left');
             const right = document.getElementById('right');
-            const vp = document.getElementById('vp');
 
             const lHandle = document.createElement('div');
             lHandle.className = 'panel-resize-handle';
             lHandle.title = 'Тащи для изменения ширины';
-            left.parentNode.insertBefore(lHandle, vp);
+            left.style.position = 'relative';
+            left.appendChild(lHandle);
             makeResizable(lHandle, 'left');
 
             const rHandle = document.createElement('div');
             rHandle.className = 'panel-resize-handle';
             rHandle.title = 'Тащи для изменения ширины';
-            vp.parentNode.insertBefore(rHandle, right);
+            right.style.position = 'relative';
+            right.appendChild(rHandle);
             makeResizable(rHandle, 'right');
         }
 
@@ -2981,7 +2979,7 @@
         //  AUTO-UPDATER
         // ═══════════════════════════════════════════════════════════
 
-        const APP_VERSION = '2.1.1';
+        const APP_VERSION = '2.1.2';
         const GITHUB_USER = 'MihailKashintsev';
         const GITHUB_REPO = 'ren3d';
         const GITHUB_BRANCH = 'master';
@@ -3117,14 +3115,22 @@
 
         async function checkForUpdates() {
             try {
-                const resp = await fetch(VERSION_URL + '?t=' + Date.now(), {
-                    signal: AbortSignal.timeout(8000)
-                });
-                if (!resp.ok) return;
-
-                const data = await resp.json();
+                let data;
+                if (window.electronAPI && window.electronAPI.downloadUrl) {
+                    const dl = await window.electronAPI.downloadUrl(VERSION_URL + '?t=' + Date.now());
+                    if (!dl.ok) return;
+                    data = JSON.parse(dl.data);
+                } else {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 8000);
+                    try {
+                        const resp = await fetch(VERSION_URL + '?t=' + Date.now(), { signal: controller.signal });
+                        clearTimeout(timer);
+                        if (!resp.ok) return;
+                        data = await resp.json();
+                    } finally { clearTimeout(timer); }
+                }
                 const latest = data.version;
-
                 if (latest && latest !== APP_VERSION && isNewerVersion(latest, APP_VERSION)) {
                     console.log(`[Ren3D] Update available: ${APP_VERSION} → ${latest}`);
                     showUpdateBanner(latest);
