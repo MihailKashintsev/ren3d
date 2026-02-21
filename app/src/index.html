@@ -1031,6 +1031,96 @@
         input[type=file] {
             display: none;
         }
+
+        /* ── RESIZABLE PANELS ── */
+        .panel-resize-handle {
+            width: 4px;
+            cursor: col-resize;
+            background: transparent;
+            transition: background 0.2s;
+            z-index: 10;
+            flex-shrink: 0;
+            position: relative;
+        }
+
+            .panel-resize-handle:hover, .panel-resize-handle.dragging {
+                background: rgba(0,212,255,0.35);
+            }
+
+        #app {
+            grid-template-columns: var(--panel-w) 1fr var(--panel-w);
+        }
+
+        /* ── RENAME INPUT ── */
+        .tree-node .tn-rename {
+            flex: 1;
+            background: rgba(0,212,255,0.08);
+            border: 1px solid rgba(0,212,255,0.4);
+            border-radius: 4px;
+            color: var(--cyan);
+            font-family: 'Fira Code', monospace;
+            font-size: 10px;
+            padding: 1px 4px;
+            outline: none;
+            min-width: 0;
+        }
+
+        /* ── EXPORT MODAL ── */
+        .exp-opt {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: var(--r-sm);
+            border: 1px solid var(--glass-border);
+            background: var(--glass-bg);
+            cursor: pointer;
+            margin-bottom: 6px;
+            transition: all 0.15s;
+            color: var(--ink-mid);
+        }
+
+            .exp-opt:hover {
+                background: var(--glass-bg-hover);
+                border-color: var(--glass-border-active);
+                color: var(--ink);
+            }
+
+            .exp-opt .eo-ico {
+                font-size: 20px;
+            }
+
+            .exp-opt .eo-title {
+                font-family: 'Syne', sans-serif;
+                font-size: 12px;
+                font-weight: 600;
+                color: var(--ink);
+            }
+
+            .exp-opt .eo-desc {
+                font-size: 9px;
+                color: var(--ink-dim);
+            }
+
+        /* ── OBJECT NAME in inspector ── */
+        #obj-name-input {
+            width: 100%;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--r-sm);
+            color: var(--ink);
+            font-family: 'Fira Code', monospace;
+            font-size: 11px;
+            padding: 5px 8px;
+            outline: none;
+            transition: border-color 0.15s;
+            margin-bottom: 2px;
+        }
+
+            #obj-name-input:focus {
+                border-color: rgba(0,212,255,0.5);
+                background: rgba(0,212,255,0.04);
+            }
     </style>
 </head>
 <body>
@@ -1048,10 +1138,12 @@
                 <div class="dropdown" id="dd-file">
                     <div class="dd-item" onclick="newScene()">Новая сцена <span class="ks">Ctrl+N</span></div>
                     <div class="dd-sep"></div>
+                    <div class="dd-item" onclick="saveProject()">Сохранить проект <span class="ks">Ctrl+S</span></div>
+                    <div class="dd-item" onclick="openProject()">Открыть проект <span class="ks">Ctrl+O</span></div>
+                    <div class="dd-sep"></div>
                     <div class="dd-item" onclick="doImport()">Импорт .stl/.obj <span class="ks">Ctrl+I</span></div>
                     <div class="dd-sep"></div>
-                    <div class="dd-item" onclick="exportSTL()">Экспорт .stl <span class="ks">Ctrl+E</span></div>
-                    <div class="dd-item" onclick="exportOBJ()">Экспорт .obj</div>
+                    <div class="dd-item" onclick="showExportModal()">Экспорт... <span class="ks">Ctrl+E</span></div>
                 </div>
             </div>
 
@@ -1111,7 +1203,7 @@
             <div class="tb-group">
                 <button class="tb-btn" title="Новая сцена" onclick="newScene()">🗋</button>
                 <button class="tb-btn" title="Импорт (Ctrl+I)" onclick="doImport()">⇪</button>
-                <button class="tb-btn" title="Экспорт STL (Ctrl+E)" onclick="exportSTL()">⇩</button>
+                <button class="tb-btn" title="Экспорт (Ctrl+E)" onclick="showExportModal()">⇩</button>
             </div>
 
             <div class="spacer"></div>
@@ -1170,6 +1262,11 @@
             </div>
 
             <div id="props" style="display:none">
+
+                <!-- Object Name -->
+                <div style="padding: 8px 10px 4px;">
+                    <input id="obj-name-input" type="text" placeholder="Название объекта" onchange="applyObjName()" onblur="applyObjName()">
+                </div>
 
                 <!-- Transform -->
                 <div class="prop-sec">
@@ -1253,6 +1350,7 @@
     </div>
 
     <input type="file" id="file-in" accept=".stl,.obj" onchange="handleFile(event)">
+    <input type="file" id="proj-in" accept=".r3d" onchange="handleProjectOpen(event)">
     <div id="toast" style="opacity:0"></div>
 
     <!-- THREE.JS -->
@@ -1321,12 +1419,11 @@
             canvas.addEventListener('wheel', onWheel, { passive: false });
             canvas.addEventListener('contextmenu', onCtx);
             // FIX: capture=true гарантирует получение событий на Linux даже когда фокус на canvas
-            // Слушаем keydown на window и document (тройная страховка для Linux)
             window.addEventListener('keydown', onKey, true);
-            document.addEventListener('keydown', onKey, true);
+            window.addEventListener('resize', resize);
+            document.addEventListener('click', closeMenus);
 
-            // FIX LINUX CTRL+KEY: main.js ловит Ctrl+клавиши через before-input-event
-            // и присылает их сюда через IPC т.к. они не доходят до renderer напрямую.
+            // FIX LINUX CTRL+KEY via IPC
             if (window.electronAPI && window.electronAPI.onCtrlKey) {
                 window.electronAPI.onCtrlKey(({ key, shift }) => {
                     switch (key) {
@@ -1335,14 +1432,16 @@
                         case 'd': duplicateSel(); break;
                         case 'a': selectAll(); break;
                         case 'i': doImport(); break;
-                        case 'e': exportSTL(); break;
+                        case 'e': showExportModal(); break;
                         case 'n': newScene(); break;
+                        case 's': saveProject(); break;
+                        case 'o': openProject(); break;
                         case 'j': shift ? boolOp('subtract') : boolOp('union'); break;
                     }
                 });
             }
-            window.addEventListener('resize', resize);
-            document.addEventListener('click', closeMenus);
+
+            initResizablePanels();
 
             animate();
             updateStats();
@@ -1548,6 +1647,9 @@
             if (sel.length !== 1) return;
             const obj = sel[0], m = obj.mesh;
             const deg = THREE.MathUtils.radToDeg;
+            // Object name
+            const nameInp = document.getElementById('obj-name-input');
+            if (nameInp) nameInp.value = obj.name;
 
             const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = typeof v === 'number' ? +v.toFixed(4) : v; };
             set('px', m.position.x); set('py', m.position.y); set('pz', m.position.z);
@@ -1670,7 +1772,31 @@
             const o = objs.find(x => x.id === id); if (!o) return;
             if (e.shiftKey) toggleSel(o); else selectObj(o, true);
         }
-        function treeDbClick(id) { const o = objs.find(x => x.id === id); if (o) frameObjs([o.mesh]); }
+        function treeDbClick(id) {
+            const o = objs.find(x => x.id === id); if (!o) return;
+            // Double-click: inline rename
+            const node = document.querySelector(`.tree-node[data-id="${id}"]`);
+            if (!node) return;
+            const nameSpan = node.querySelector('.tn-name');
+            const inp = document.createElement('input');
+            inp.className = 'tn-rename';
+            inp.value = o.name;
+            nameSpan.replaceWith(inp);
+            inp.focus(); inp.select();
+            const commit = () => {
+                const v = inp.value.trim();
+                if (v) o.name = v;
+                updateTree();
+                // re-select to refresh inspector
+                if (sel.includes(o)) { const ni = document.getElementById('obj-name-input'); if (ni) ni.value = o.name; }
+            };
+            inp.addEventListener('blur', commit);
+            inp.addEventListener('keydown', ev => {
+                if (ev.key === 'Enter') inp.blur();
+                if (ev.key === 'Escape') { inp.value = o.name; inp.blur(); }
+                ev.stopPropagation();
+            });
+        }
         function toggleVis(e, id) {
             e.stopPropagation();
             const o = objs.find(x => x.id === id); if (!o) return;
@@ -1685,7 +1811,19 @@
             m.position.set(g('px'), g('py'), g('pz'));
             m.rotation.set(r(g('rx')), r(g('ry')), r(g('rz')));
             m.scale.set(g('sx') || 1, g('sy') || 1, g('sz') || 1);
+            saveUndo();
             showGizmoMesh();
+        }
+
+        function applyObjName() {
+            if (sel.length !== 1) return;
+            const inp = document.getElementById('obj-name-input');
+            if (!inp) return;
+            const newName = inp.value.trim();
+            if (newName && newName !== sel[0].name) {
+                sel[0].name = newName;
+                updateTree();
+            }
         }
 
         function applyMat() {
@@ -1994,9 +2132,9 @@
                 const tangent = new THREE.Vector2(-sDir.y, sDir.x);
                 const dot = mDelta.dot(tangent);
 
-                if (gizmoAxis === 'x') obj.mesh.rotation.x += dot * rSpeed;
-                else if (gizmoAxis === 'y') obj.mesh.rotation.y += dot * rSpeed;
-                else if (gizmoAxis === 'z') obj.mesh.rotation.z += dot * rSpeed;
+                if (gizmoAxis === 'x') obj.mesh.rotation.x -= dot * rSpeed;
+                else if (gizmoAxis === 'y') obj.mesh.rotation.y -= dot * rSpeed;
+                else if (gizmoAxis === 'z') obj.mesh.rotation.z -= dot * rSpeed;
             } else if (gizmoMode === 'scale') {
                 if (gizmoAxis === 'xyz') {
                     const factor = 1.0 + (-rawDy / H) * sSpeed * 2.0;
@@ -2055,19 +2193,35 @@
         }
 
         function getWorldGeom(obj) {
-            const g = obj.mesh.geometry.clone();
+            // Ensure we have a non-indexed geometry with correct vertex count
+            let g = obj.mesh.geometry.clone();
             g.applyMatrix4(obj.mesh.matrixWorld);
+            // Convert to non-indexed to preserve all triangles
+            if (g.index) {
+                g = g.toNonIndexed();
+            }
             g.computeVertexNormals();
             return g;
+        }
+
+        function _addVertexColors(geom, color, vertCount) {
+            const c = new THREE.Color(color);
+            const cols = new Float32Array(vertCount * 3);
+            for (let i = 0; i < vertCount; i++) {
+                cols[i * 3] = c.r; cols[i * 3 + 1] = c.g; cols[i * 3 + 2] = c.b;
+            }
+            geom.setAttribute('color', new THREE.BufferAttribute(cols, 3));
         }
 
         function performUnion(A, B) {
             const gA = getWorldGeom(A);
             const gB = getWorldGeom(B);
-            const merged = mergeGeoms(gA, gB);
+            _addVertexColors(gA, A.mesh.material.color, gA.attributes.position.count);
+            _addVertexColors(gB, B.mesh.material.color, gB.attributes.position.count);
+            const merged = mergeGeomsWithColors(gA, gB);
             merged.computeVertexNormals();
 
-            const mat = A.mesh.material.clone();
+            const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0 });
             const mesh = new THREE.Mesh(merged, mat);
             mesh.castShadow = true; mesh.receiveShadow = true;
             scene.add(mesh);
@@ -2084,10 +2238,12 @@
             const gA = getWorldGeom(A);
             const gB = getWorldGeom(B);
             flipNormals(gB);
-            const merged = mergeGeoms(gA, gB);
+            _addVertexColors(gA, A.mesh.material.color, gA.attributes.position.count);
+            _addVertexColors(gB, B.mesh.material.color, gB.attributes.position.count);
+            const merged = mergeGeomsWithColors(gA, gB);
             merged.computeVertexNormals();
 
-            const mat = A.mesh.material.clone();
+            const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0 });
             const mesh = new THREE.Mesh(merged, mat);
             mesh.castShadow = true; mesh.receiveShadow = true;
             mesh.material.side = THREE.DoubleSide;
@@ -2108,10 +2264,12 @@
             const m = new THREE.Matrix4().makeScale(0.9, 0.9, 0.9);
             gB.applyMatrix4(m);
 
-            const merged = mergeGeoms(gA, gB);
+            _addVertexColors(gA, A.mesh.material.color, gA.attributes.position.count);
+            _addVertexColors(gB, B.mesh.material.color, gB.attributes.position.count);
+            const merged = mergeGeomsWithColors(gA, gB);
             merged.computeVertexNormals();
 
-            const mat = B.mesh.material.clone();
+            const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0 });
             const mesh = new THREE.Mesh(merged, mat);
             mesh.castShadow = true; mesh.receiveShadow = true;
             scene.add(mesh);
@@ -2145,12 +2303,11 @@
         }
 
         function mergeGeoms(gA, gB) {
-            const a = gA.index ? gA.toNonIndexed() : gA;
-            const b = gB.index ? gB.toNonIndexed() : gB;
-
-            const posA = a.attributes.position.array, posB = b.attributes.position.array;
-            const norA = a.attributes.normal ? a.attributes.normal.array : new Float32Array(posA.length);
-            const norB = b.attributes.normal ? b.attributes.normal.array : new Float32Array(posB.length);
+            // Both geometries must already be non-indexed (getWorldGeom ensures this)
+            const posA = gA.attributes.position.array;
+            const posB = gB.attributes.position.array;
+            const norA = gA.attributes.normal ? gA.attributes.normal.array : new Float32Array(posA.length);
+            const norB = gB.attributes.normal ? gB.attributes.normal.array : new Float32Array(posB.length);
 
             const positions = new Float32Array(posA.length + posB.length);
             const normals = new Float32Array(norA.length + norB.length);
@@ -2163,6 +2320,31 @@
             return g;
         }
 
+        function mergeGeomsWithColors(gA, gB) {
+            const posA = gA.attributes.position.array;
+            const posB = gB.attributes.position.array;
+            const norA = gA.attributes.normal ? gA.attributes.normal.array : new Float32Array(posA.length);
+            const norB = gB.attributes.normal ? gB.attributes.normal.array : new Float32Array(posB.length);
+            const colA = gA.attributes.color ? gA.attributes.color.array : null;
+            const colB = gB.attributes.color ? gB.attributes.color.array : null;
+
+            const positions = new Float32Array(posA.length + posB.length);
+            const normals = new Float32Array(norA.length + norB.length);
+            positions.set(posA); positions.set(posB, posA.length);
+            normals.set(norA); normals.set(norB, norA.length);
+
+            const g = new THREE.BufferGeometry();
+            g.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            g.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+
+            if (colA && colB) {
+                const colors = new Float32Array(colA.length + colB.length);
+                colors.set(colA); colors.set(colB, colA.length);
+                g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            }
+            return g;
+        }
+
         function removeObjs(list) {
             list.forEach(o => { scene.remove(o.mesh); o.mesh.geometry.dispose(); o.mesh.material.dispose(); objs.splice(objs.indexOf(o), 1); });
         }
@@ -2172,17 +2354,29 @@
         // ═══════════════════════════════════════════════════════════
 
         function snapshot() {
-            return objs.map(o => ({
-                id: o.id, type: o.type, name: o.name, params: { ...o.params },
-                pos: o.mesh.position.toArray(),
-                rot: [o.mesh.rotation.x, o.mesh.rotation.y, o.mesh.rotation.z],
-                scl: o.mesh.scale.toArray(),
-                color: '#' + o.mesh.material.color.getHexString(),
-                metalness: o.mesh.material.metalness,
-                roughness: o.mesh.material.roughness,
-                opacity: o.mesh.material.opacity,
-                wireframe: o.mesh.material.wireframe,
-            }));
+            return objs.map(o => {
+                const mat = o.mesh.material;
+                const s = {
+                    id: o.id, type: o.type, name: o.name, params: { ...o.params },
+                    pos: o.mesh.position.toArray(),
+                    rot: [o.mesh.rotation.x, o.mesh.rotation.y, o.mesh.rotation.z],
+                    scl: o.mesh.scale.toArray(),
+                    color: '#' + mat.color.getHexString(),
+                    metalness: mat.metalness || 0,
+                    roughness: mat.roughness !== undefined ? mat.roughness : 0.5,
+                    opacity: mat.opacity !== undefined ? mat.opacity : 1,
+                    wireframe: mat.wireframe || false,
+                    vertexColors: mat.vertexColors || false,
+                };
+                // Save vertex color data for merged objects
+                if (mat.vertexColors && o.mesh.geometry.attributes.color) {
+                    s.colorData = Array.from(o.mesh.geometry.attributes.color.array);
+                    s.posData = Array.from(o.mesh.geometry.attributes.position.array);
+                    s.norData = o.mesh.geometry.attributes.normal
+                        ? Array.from(o.mesh.geometry.attributes.normal.array) : null;
+                }
+                return s;
+            });
         }
 
         function restoreSnapshot(state) {
@@ -2190,17 +2384,27 @@
             objs = []; sel = []; hideGizmoMesh();
 
             state.forEach(s => {
-                let g;
+                let g, mat;
                 const p = s.params;
-                if (s.type === 'box') g = new THREE.BoxGeometry(p.w || 1, p.h || 1, p.d || 1);
-                else if (s.type === 'sphere') g = new THREE.SphereGeometry(p.r || 0.5, p.sw || 32, p.sh || 16);
-                else if (s.type === 'cyl') g = new THREE.CylinderGeometry(p.rt || 0.5, p.rb || 0.5, p.h || 1, 32);
-                else if (s.type === 'cone') g = new THREE.ConeGeometry(p.r || 0.5, p.h || 1, p.s || 32);
-                else if (s.type === 'torus') g = new THREE.TorusGeometry(p.r || 0.5, p.t || 0.2, 16, p.s || 32);
-                else if (s.type === 'plane') g = new THREE.PlaneGeometry(p.w || 1, p.h || 1);
-                else g = new THREE.BoxGeometry(1, 1, 1);
 
-                const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(s.color), metalness: s.metalness || 0, roughness: s.roughness || 0.5, opacity: s.opacity !== undefined ? s.opacity : 1, transparent: (s.opacity || 1) < 1, wireframe: s.wireframe || false });
+                if (s.vertexColors && s.posData) {
+                    // Restore merged geometry with vertex colors
+                    g = new THREE.BufferGeometry();
+                    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(s.posData), 3));
+                    if (s.norData) g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(s.norData), 3));
+                    if (s.colorData) g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(s.colorData), 3));
+                    mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: s.roughness || 0.45, metalness: s.metalness || 0, opacity: s.opacity !== undefined ? s.opacity : 1, transparent: (s.opacity || 1) < 1, wireframe: s.wireframe || false });
+                } else {
+                    if (s.type === 'box') g = new THREE.BoxGeometry(p.w || 1, p.h || 1, p.d || 1);
+                    else if (s.type === 'sphere') g = new THREE.SphereGeometry(p.r || 0.5, p.sw || 32, p.sh || 16);
+                    else if (s.type === 'cyl') g = new THREE.CylinderGeometry(p.rt || 0.5, p.rb || 0.5, p.h || 1, 32);
+                    else if (s.type === 'cone') g = new THREE.ConeGeometry(p.r || 0.5, p.h || 1, p.s || 32);
+                    else if (s.type === 'torus') g = new THREE.TorusGeometry(p.r || 0.5, p.t || 0.2, 16, p.s || 32);
+                    else if (s.type === 'plane') g = new THREE.PlaneGeometry(p.w || 1, p.h || 1);
+                    else g = new THREE.BoxGeometry(1, 1, 1);
+                    mat = new THREE.MeshStandardMaterial({ color: new THREE.Color(s.color), metalness: s.metalness || 0, roughness: s.roughness || 0.5, opacity: s.opacity !== undefined ? s.opacity : 1, transparent: (s.opacity || 1) < 1, wireframe: s.wireframe || false });
+                }
+
                 const mesh = new THREE.Mesh(g, mat);
                 mesh.castShadow = true; mesh.receiveShadow = true;
                 mesh.position.fromArray(s.pos); mesh.rotation.set(...s.rot); mesh.scale.fromArray(s.scl);
@@ -2233,6 +2437,47 @@
         // ═══════════════════════════════════════════════════════════
         //  EXPORT
         // ═══════════════════════════════════════════════════════════
+
+        // ─────────────────────────────────────────────────────
+        //  EXPORT MODAL
+        // ─────────────────────────────────────────────────────
+        function showExportModal() {
+            if (!objs.length) { toast('Нет объектов'); return; }
+            const selCount = sel.length;
+            const totalCount = objs.length;
+            const scope = selCount > 0 ? `Выбрано: ${selCount} объект(ов)` : `Все объекты: ${totalCount}`;
+
+            const modal = document.createElement('div');
+            modal.className = 'modal-bg';
+            modal.id = 'export-modal';
+            modal.innerHTML = `
+                    <div class="modal-box" style="min-width:380px">
+                        <h3>Экспорт</h3>
+                        <p style="margin-bottom:10px">Область: <b style="color:var(--cyan)">${scope}</b></p>
+                        <div class="exp-opt" onclick="exportSTL();closeModal('export-modal')">
+                            <span class="eo-ico">📐</span>
+                            <div><div class="eo-title">STL</div><div class="eo-desc">Стандартный формат для 3D-печати</div></div>
+                        </div>
+                        <div class="exp-opt" onclick="exportOBJ();closeModal('export-modal')">
+                            <span class="eo-ico">📦</span>
+                            <div><div class="eo-title">OBJ + MTL</div><div class="eo-desc">Wavefront OBJ с материалами</div></div>
+                        </div>
+                        <div class="exp-opt" onclick="saveProject();closeModal('export-modal')">
+                            <span class="eo-ico">💾</span>
+                            <div><div class="eo-title">Проект .r3d</div><div class="eo-desc">Сохранить сцену для последующего открытия</div></div>
+                        </div>
+                        <div class="modal-btns" style="margin-top:12px">
+                            <button class="mbtn" onclick="closeModal('export-modal')">Отмена</button>
+                        </div>
+                    </div>`;
+            document.body.appendChild(modal);
+            modal.addEventListener('click', e => { if (e.target === modal) closeModal('export-modal'); });
+        }
+
+        function closeModal(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
 
         function exportSTL() {
             if (!objs.length) { toast('Нет объектов'); return; }
@@ -2286,10 +2531,16 @@
         }
 
         function download(name, content) {
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
-            a.download = name; a.click();
-            URL.revokeObjectURL(a.href);
+            if (window.electronAPI && window.electronAPI.saveFile) {
+                window.electronAPI.saveFile(name, content).then(res => {
+                    if (res && res.ok) toast('Сохранено: ' + res.filePath.split(/[\/]/).pop());
+                });
+            } else {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([content], { type: 'text/plain' }));
+                a.download = name; a.click();
+                URL.revokeObjectURL(a.href);
+            }
         }
 
         // ═══════════════════════════════════════════════════════════
@@ -2409,6 +2660,63 @@
         }
 
         // ═══════════════════════════════════════════════════════════
+        //  PROJECT SAVE / OPEN
+        // ═══════════════════════════════════════════════════════════
+
+        function saveProject() {
+            if (!objs.length) { toast('Нет объектов для сохранения'); return; }
+            const data = {
+                version: 1,
+                name: 'Ren3D Project',
+                saved: new Date().toISOString(),
+                objects: snapshot(),
+            };
+            const json = JSON.stringify(data, null, 2);
+            if (window.electronAPI && window.electronAPI.saveFile) {
+                window.electronAPI.saveFile('project.r3d', json).then(res => {
+                    if (res && res.ok) toast('Проект сохранён: ' + res.filePath.split(/[\/]/).pop());
+                });
+            } else {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+                a.download = 'project.r3d'; a.click();
+                URL.revokeObjectURL(a.href);
+                toast('Проект сохранён!');
+            }
+            closeAllMenus();
+        }
+
+        function openProject() {
+            document.getElementById('proj-in').click();
+            closeAllMenus();
+        }
+
+        function handleProjectOpen(e) {
+            const f = e.target.files[0]; if (!f) return;
+            const r = new FileReader();
+            r.onload = ev => {
+                try {
+                    const data = JSON.parse(ev.target.result);
+                    if (!data.objects) throw new Error('Неверный формат файла');
+                    if (objs.length && !confirm('Открыть проект? Текущая сцена будет закрыта.')) return;
+                    // Clear scene
+                    objs.forEach(o => { scene.remove(o.mesh); o.mesh.geometry.dispose(); o.mesh.material.dispose(); });
+                    objs = []; sel = []; undoStack = []; redoStack = []; hideGizmoMesh();
+                    // Restore
+                    restoreSnapshot(data.objects);
+                    // Restore counter
+                    counter = {};
+                    objs.forEach(o => { if (!counter[o.type]) counter[o.type] = 0; counter[o.type]++; });
+                    document.getElementById('empty-hint').style.display = objs.length ? 'none' : 'block';
+                    toast('Проект открыт: ' + f.name);
+                    if (objs.length) frameAll();
+                } catch (err) { toast('Ошибка открытия проекта: ' + err.message); }
+            };
+            r.readAsText(f);
+            e.target.value = '';
+        }
+
+        // ═══════════════════════════════════════════════════════════
         //  NEW SCENE
         // ═══════════════════════════════════════════════════════════
 
@@ -2422,6 +2730,67 @@
         }
 
         // ═══════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════
+        //  RESIZABLE PANELS
+        // ═══════════════════════════════════════════════════════════
+
+        function initResizablePanels() {
+            const app = document.getElementById('app');
+
+            function makeResizable(handleEl, side) {
+                let startX, startW;
+                handleEl.addEventListener('mousedown', e => {
+                    startX = e.clientX;
+                    const panel = side === 'left'
+                        ? document.getElementById('left')
+                        : document.getElementById('right');
+                    startW = panel.getBoundingClientRect().width;
+                    handleEl.classList.add('dragging');
+                    document.body.style.cursor = 'col-resize';
+                    document.body.style.userSelect = 'none';
+
+                    const onMove = e => {
+                        const dx = e.clientX - startX;
+                        const newW = side === 'left'
+                            ? Math.max(160, Math.min(400, startW + dx))
+                            : Math.max(160, Math.min(400, startW - dx));
+                        app.style.gridTemplateColumns = side === 'left'
+                            ? `${newW}px 1fr var(--panel-w)`
+                            : `var(--panel-w) 1fr ${newW}px`;
+                        if (side === 'left') app.style.setProperty('--panel-w-left', newW + 'px');
+                    };
+                    const onUp = () => {
+                        handleEl.classList.remove('dragging');
+                        document.body.style.cursor = '';
+                        document.body.style.userSelect = '';
+                        document.removeEventListener('mousemove', onMove);
+                        document.removeEventListener('mouseup', onUp);
+                        resize();
+                    };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                    e.preventDefault();
+                });
+            }
+
+            // Insert resize handles dynamically next to panels
+            const left = document.getElementById('left');
+            const right = document.getElementById('right');
+            const vp = document.getElementById('vp');
+
+            const lHandle = document.createElement('div');
+            lHandle.className = 'panel-resize-handle';
+            lHandle.title = 'Тащи для изменения ширины';
+            left.parentNode.insertBefore(lHandle, vp);
+            makeResizable(lHandle, 'left');
+
+            const rHandle = document.createElement('div');
+            rHandle.className = 'panel-resize-handle';
+            rHandle.title = 'Тащи для изменения ширины';
+            vp.parentNode.insertBefore(rHandle, right);
+            makeResizable(rHandle, 'right');
+        }
+
         //  KEYBOARD — FIX для Linux
         //  Ключевые изменения:
         //  1. capture=true в addEventListener (см. init())
@@ -2431,67 +2800,64 @@
         //  5. Исправлен дублирующийся case 'j' (был синтаксический баг)
         // ═══════════════════════════════════════════════════════════
 
-        // Дедупликация: onKey слушается на window И document одновременно
-        let _lastKeyId = '';
         function onKey(e) {
             // Игнорировать если фокус в поле ввода
             const tag = e.target.tagName;
             if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-            // Дедупликация (window + document слушают одновременно)
-            const kid = e.timeStamp + '|' + e.code;
-            if (kid === _lastKeyId) return;
-            _lastKeyId = kid;
+            // FIX: нормализуем регистр — на Linux Shift+C может дать 'c' или 'C' непоследовательно
+            const key = e.key.toLowerCase();
 
-            // Ctrl+клавиши на Linux обрабатываются через IPC (onCtrlKey выше).
-            // На Windows/Mac они доходят до renderer нормально — обрабатываем здесь.
             if (e.ctrlKey || e.metaKey) {
-                const key = e.key.toLowerCase();
                 switch (key) {
                     case 'z': e.preventDefault(); undo(); return;
                     case 'y': e.preventDefault(); redo(); return;
                     case 'd': e.preventDefault(); duplicateSel(); return;
                     case 'a': e.preventDefault(); selectAll(); return;
                     case 'i': e.preventDefault(); doImport(); return;
-                    case 'e': e.preventDefault(); exportSTL(); return;
+                    case 'e': e.preventDefault(); showExportModal(); return;
                     case 'n': e.preventDefault(); newScene(); return;
+                    case 's': e.preventDefault(); saveProject(); return;
+                    case 'o': e.preventDefault(); openProject(); return;
                     case 'j':
                         e.preventDefault();
-                        e.shiftKey ? boolOp('subtract') : boolOp('union');
+                        if (e.shiftKey) { boolOp('subtract'); } else { boolOp('union'); }
                         return;
                 }
                 return;
             }
 
-            // Shift+буква через e.code — физический код клавиши,
-            // не зависит от раскладки (русская/английская) и регистра
             if (e.shiftKey) {
-                e.preventDefault();
-                switch (e.code) {
-                    case 'KeyC': addObj('box'); return;
-                    case 'KeyS': addObj('sphere'); return;
-                    case 'KeyY': addObj('cyl'); return;
-                    case 'KeyO': addObj('cone'); return;
-                    case 'KeyT': addObj('torus'); return;
-                    case 'KeyP': addObj('plane'); return;
+                switch (key) {
+                    // FIX: e.preventDefault() блокирует системные Shift-комбинации на Linux
+                    case 'c': e.preventDefault(); addObj('box'); return;
+                    case 's': e.preventDefault(); addObj('sphere'); return;
+                    case 'y': e.preventDefault(); addObj('cyl'); return;
+                    case 'o': e.preventDefault(); addObj('cone'); return;
+                    case 't': e.preventDefault(); addObj('torus'); return;
+                    case 'p': e.preventDefault(); addObj('plane'); return;
                 }
                 return;
             }
 
-            // Одиночные клавиши без модификаторов — e.code для независимости от раскладки
-            if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+            switch (key) {
+                case 'delete':
+                case 'backspace': deleteSel(); break;
+                case 'escape': deselectAll(); break;
+                case 'f': frameSel(); break;
+                case 'g': toggleGrid(); break;
+                case 'z': toggleWire(); break;
+                case 'home': frameAll(); break;
+            }
+
+            // FIX: e.code для инструментов — физический код клавиши,
+            // не зависит от раскладки и регистра на любой ОС
+            if (!e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 switch (e.code) {
-                    case 'Delete': deleteSel(); return;
-                    case 'Backspace': deleteSel(); return;
-                    case 'Escape': deselectAll(); return;
-                    case 'KeyF': frameSel(); return;
-                    case 'Home': frameAll(); return;
-                    case 'KeyZ': toggleWire(); return;
-                    case 'KeyT': toggleGrid(); return;
-                    case 'KeyQ': setTool('sel'); return;
-                    case 'KeyG': setTool('move'); return;
-                    case 'KeyR': setTool('rot'); return;
-                    case 'KeyS': setTool('scale'); return;
+                    case 'KeyQ': setTool('sel'); break;
+                    case 'KeyG': setTool('move'); break;
+                    case 'KeyR': setTool('rot'); break;
+                    case 'KeyS': setTool('scale'); break;
                 }
             }
         }
@@ -2615,7 +2981,7 @@
         //  AUTO-UPDATER
         // ═══════════════════════════════════════════════════════════
 
-        const APP_VERSION = '2.0.5';
+        const APP_VERSION = '2.0.1';
         const GITHUB_USER = 'MihailKashintsev';
         const GITHUB_REPO = 'ren3d';
         const GITHUB_BRANCH = 'master';
@@ -2715,23 +3081,11 @@
             bar.style.width = '15%';
 
             try {
-                let html;
-
-                // На Linux fetch не работает для внешних URL в Electron renderer.
-                // Используем IPC-канал downloadUrl — скачивание идёт через main process.
-                if (window.electronAPI && window.electronAPI.downloadUrl) {
-                    const dl = await window.electronAPI.downloadUrl(APP_URL + '?t=' + Date.now());
-                    if (!dl.ok) throw new Error('Download failed: ' + dl.error);
-                    html = dl.data;
-                } else {
-                    // Fallback для браузера / dev-режима
-                    const resp = await fetch(APP_URL + '?t=' + Date.now());
-                    if (!resp.ok) throw new Error('Download failed: ' + resp.status);
-                    html = await resp.text();
-                }
+                const resp = await fetch(APP_URL + '?t=' + Date.now());
+                if (!resp.ok) throw new Error('Download failed: ' + resp.status);
 
                 bar.style.width = '60%';
-                if (!html || html.length < 1000) throw new Error('Downloaded file is empty or corrupted');
+                const html = await resp.text();
                 bar.style.width = '85%';
 
                 if (window.electronAPI && window.electronAPI.updateApp) {
@@ -2763,21 +3117,12 @@
 
         async function checkForUpdates() {
             try {
-                let data;
+                const resp = await fetch(VERSION_URL + '?t=' + Date.now(), {
+                    signal: AbortSignal.timeout(8000)
+                });
+                if (!resp.ok) return;
 
-                // На Linux используем IPC для скачивания через main process
-                if (window.electronAPI && window.electronAPI.downloadUrl) {
-                    const dl = await window.electronAPI.downloadUrl(VERSION_URL + '?t=' + Date.now());
-                    if (!dl.ok) return;
-                    data = JSON.parse(dl.data);
-                } else {
-                    const resp = await fetch(VERSION_URL + '?t=' + Date.now(), {
-                        signal: AbortSignal.timeout(8000)
-                    });
-                    if (!resp.ok) return;
-                    data = await resp.json();
-                }
-
+                const data = await resp.json();
                 const latest = data.version;
 
                 if (latest && latest !== APP_VERSION && isNewerVersion(latest, APP_VERSION)) {
