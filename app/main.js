@@ -35,19 +35,32 @@ function createWindow() {
 
     win.loadFile(getIndexPath());
 
-    // ── FIX LINUX CTRL+KEY ─────────────────────────────────────
-    // На Linux Electron перехватывает Ctrl+клавиши через нативное меню
-    // раньше чем они попадают в renderer. before-input-event срабатывает
-    // до любой обработки Electron — здесь мы их перехватываем,
-    // пересылаем в renderer через IPC и блокируем стандартную обработку.
+    // ── FIX LINUX SHIFT+KEY ────────────────────────────────────
+    // На Linux перехватываем Shift+key через before-input-event,
+    // пересылаем в renderer через IPC как 'main-shift-key'.
+    // Ctrl+Z/Y/A оставляем нативными (браузер сам обрабатывает).
+    const CTRL_PASSTHROUGH = new Set(['z', 'y', 'a']);
     win.webContents.on('before-input-event', (event, input) => {
         if (input.type !== 'keyDown') return;
-        if (!input.control && !input.meta) return;
-        win.webContents.send('main-ctrl-key', {
-            key: input.key.toLowerCase(),
-            shift: input.shift,
-        });
-        event.preventDefault();
+
+        // Shift+key (без Ctrl/Meta/Alt) → onShiftKey
+        if (input.shift && !input.control && !input.meta && !input.alt) {
+            win.webContents.send('main-shift-key', { key: input.key.toLowerCase(), alt: false });
+            event.preventDefault();
+            return;
+        }
+        // Shift+Alt+key → onShiftKey с alt=true
+        if (input.shift && input.alt && !input.control && !input.meta) {
+            win.webContents.send('main-shift-key', { key: input.key.toLowerCase(), alt: true });
+            event.preventDefault();
+            return;
+        }
+        // Ctrl+key — блокируем все кроме нативных Z/Y/A
+        if ((input.control || input.meta) && !input.shift) {
+            if (!CTRL_PASSTHROUGH.has(input.key.toLowerCase())) {
+                event.preventDefault();
+            }
+        }
     });
 
     win.once('ready-to-show', () => {
